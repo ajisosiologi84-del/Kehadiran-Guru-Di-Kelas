@@ -8,6 +8,7 @@ import path from "path";
 import fs from "fs";
 import { initializeApp } from "firebase/app";
 import { initializeFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs } from "firebase/firestore";
+import firebaseConfigImport from "./firebase-applet-config.json";
 
 const fallbackSettings = { appsScriptUrl: "" };
 const fallbackSubmissionsKelas: any[] = [];
@@ -19,19 +20,23 @@ let db: any = null;
 let firebaseActive = false;
 
 try {
-  const configPath = path.join(process.cwd(), "firebase-applet-config.json");
-  if (fs.existsSync(configPath)) {
-    const firebaseConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-    if (firebaseConfig && firebaseConfig.apiKey) {
-      firebaseApp = initializeApp(firebaseConfig);
-      db = initializeFirestore(firebaseApp, {}, firebaseConfig.firestoreDatabaseId || "(default)");
-      firebaseActive = true;
-      console.log("Firebase Web SDK Firestore initialized successfully with databaseId:", firebaseConfig.firestoreDatabaseId || "(default)");
-    } else {
-      console.log("firebase-applet-config.json configuration is empty, running without Firebase persistence.");
+  let firebaseConfig: any = firebaseConfigImport;
+  
+  // Fallback to dynamic reading in case config is empty in the import but updated on disk (for local development)
+  if (!firebaseConfig || !firebaseConfig.apiKey) {
+    const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+    if (fs.existsSync(configPath)) {
+      firebaseConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
     }
+  }
+
+  if (firebaseConfig && firebaseConfig.apiKey) {
+    firebaseApp = initializeApp(firebaseConfig);
+    db = initializeFirestore(firebaseApp, {}, firebaseConfig.firestoreDatabaseId || "(default)");
+    firebaseActive = true;
+    console.log("Firebase Web SDK Firestore initialized successfully with databaseId:", firebaseConfig.firestoreDatabaseId || "(default)");
   } else {
-    console.log("firebase-applet-config.json not found, running without Firebase persistence.");
+    console.log("No valid Firebase configuration found, running without Firebase persistence.");
   }
 } catch (err: any) {
   console.error("Failed to initialize Firebase:", err.message);
@@ -605,27 +610,22 @@ initApp();
   });
 
   // API: Get reference schedule data
-  app.get("/api/schedule", (req, res) => {
-    // Return cached schedule immediately (lightning fast!)
-    res.json(cachedScheduleData);
-
-    // If still fallback, trigger loading/syncing in the background so it updates for future requests
+  app.get("/api/schedule", async (req, res) => {
+    // If still fallback, load from Firestore and sync from Sheets if needed synchronously (so serverless execution environment doesn't freeze the task)
     if (cachedScheduleData.lastSync === "Never (Using Fallback)") {
-      // Run in background without blocking the response
-      (async () => {
-        try {
-          console.log("Loading schedule from Firestore in background...");
-          await loadCachedScheduleFromFirestore();
-          if (cachedScheduleData.lastSync === "Never (Using Fallback)") {
-            console.log("No schedule in cache, syncing live from Sheets in background...");
-            await syncWithGoogleSheet();
-            await saveCachedScheduleToFirestore();
-          }
-        } catch (err: any) {
-          console.error("Background initial sync failed:", err.message);
+      try {
+        console.log("Loading schedule from Firestore synchronously...");
+        await loadCachedScheduleFromFirestore();
+        if (cachedScheduleData.lastSync === "Never (Using Fallback)") {
+          console.log("No schedule in Firestore, syncing live from Sheets synchronously...");
+          await syncWithGoogleSheet();
+          await saveCachedScheduleToFirestore();
         }
-      })();
+      } catch (err: any) {
+        console.error("Synchronous initial sync failed:", err.message);
+      }
     }
+    res.json(cachedScheduleData);
   });
 
   // API: Get App Settings
@@ -916,7 +916,8 @@ initApp();
   // Vite integration
   if (!process.env.VERCEL) {
     if (process.env.NODE_ENV !== "production") {
-      import("vite").then(({ createServer: createViteServer }) => {
+      const viteModuleName = "vite";
+      import(viteModuleName).then(({ createServer: createViteServer }) => {
         createViteServer({
           server: { middlewareMode: true },
           appType: "spa",
