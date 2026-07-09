@@ -7,14 +7,15 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
-import { initializeApp, getApps } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
+import { initializeApp } from "firebase/app";
+import { initializeFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs } from "firebase/firestore";
 
 const fallbackSettings = JSON.parse(fs.readFileSync(path.join(process.cwd(), "src", "data", "settings.json"), "utf8"));
 const fallbackSubmissionsKelas = JSON.parse(fs.readFileSync(path.join(process.cwd(), "src", "data", "submissions_kelas.json"), "utf8"));
 const fallbackSubmissionsIzin = JSON.parse(fs.readFileSync(path.join(process.cwd(), "src", "data", "submissions_izin.json"), "utf8"));
 
 // Firebase configuration loader and DB initialization
+let firebaseApp: any = null;
 let db: any = null;
 let firebaseActive = false;
 
@@ -22,13 +23,10 @@ try {
   const configPath = path.join(process.cwd(), "firebase-applet-config.json");
   if (fs.existsSync(configPath)) {
     const firebaseConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-    const app = getApps().length === 0 ? initializeApp({
-      projectId: firebaseConfig.projectId
-    }) : getApps()[0];
-    
-    db = getFirestore(app, firebaseConfig.firestoreDatabaseId || "(default)");
+    firebaseApp = initializeApp(firebaseConfig);
+    db = initializeFirestore(firebaseApp, {}, firebaseConfig.firestoreDatabaseId || "(default)");
     firebaseActive = true;
-    console.log("Firebase Admin Firestore initialized successfully with databaseId:", firebaseConfig.firestoreDatabaseId || "(default)");
+    console.log("Firebase Web SDK Firestore initialized successfully with databaseId:", firebaseConfig.firestoreDatabaseId || "(default)");
   } else {
     console.log("firebase-applet-config.json not found, running without Firebase persistence.");
   }
@@ -270,9 +268,9 @@ function extractAppsScriptError(html: string): string {
 async function loadSettings(): Promise<{ appsScriptUrl: string }> {
   if (firebaseActive && db) {
     try {
-      const docRef = db.collection("settings").doc("config");
-      const docSnap = await docRef.get();
-      if (docSnap.exists) {
+      const docRef = doc(db, "settings", "config");
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
         return docSnap.data() as { appsScriptUrl: string };
       }
     } catch (err: any) {
@@ -300,8 +298,8 @@ async function saveSettings(settings: { appsScriptUrl: string }) {
 
   if (firebaseActive && db) {
     try {
-      const docRef = db.collection("settings").doc("config");
-      await docRef.set(settings);
+      const docRef = doc(db, "settings", "config");
+      await setDoc(docRef, settings);
       console.log("Settings synced to Firestore successfully.");
     } catch (err: any) {
       console.error("Failed to sync settings to Firestore:", err.message);
@@ -312,9 +310,9 @@ async function saveSettings(settings: { appsScriptUrl: string }) {
 async function loadCachedScheduleFromFirestore() {
   if (firebaseActive && db) {
     try {
-      const docRef = db.collection("settings").doc("cached_schedule");
-      const docSnap = await docRef.get();
-      if (docSnap.exists) {
+      const docRef = doc(db, "settings", "cached_schedule");
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
         const data = docSnap.data();
         if (data && data.namaGuruList && data.namaGuruList.length > 0) {
           cachedScheduleData = data as any;
@@ -330,8 +328,8 @@ async function loadCachedScheduleFromFirestore() {
 async function saveCachedScheduleToFirestore() {
   if (firebaseActive && db) {
     try {
-      const docRef = db.collection("settings").doc("cached_schedule");
-      await docRef.set(cachedScheduleData);
+      const docRef = doc(db, "settings", "cached_schedule");
+      await setDoc(docRef, cachedScheduleData);
       console.log("Cached schedule data saved to Firestore successfully.");
     } catch (err: any) {
       console.error("Failed to save cached schedule to Firestore:", err.message);
@@ -377,10 +375,10 @@ async function asyncPushToSheets(action: "add" | "edit" | "delete", type: "kelas
 async function loadSubmissionsKelas(): Promise<any[]> {
   if (firebaseActive && db) {
     try {
-      const colRef = db.collection("submissions_kelas");
-      const querySnapshot = await colRef.get();
+      const colRef = collection(db, "submissions_kelas");
+      const querySnapshot = await getDocs(colRef);
       const list: any[] = [];
-      querySnapshot.forEach((doc: any) => {
+      querySnapshot.forEach((doc) => {
         list.push(doc.data());
       });
       return list.sort((a, b) => new Date(a.submittedAt || 0).getTime() - new Date(b.submittedAt || 0).getTime());
@@ -410,15 +408,15 @@ async function saveSubmissionsKelas(data: any[]) {
   if (firebaseActive && db) {
     try {
       for (const item of data) {
-        const docRef = db.collection("submissions_kelas").doc(item.id);
-        await docRef.set(item);
+        const docRef = doc(db, "submissions_kelas", item.id);
+        await setDoc(docRef, item);
       }
-      const colRef = db.collection("submissions_kelas");
-      const querySnapshot = await colRef.get();
+      const colRef = collection(db, "submissions_kelas");
+      const querySnapshot = await getDocs(colRef);
       const currentIds = new Set(data.map(item => item.id));
       for (const docSnap of querySnapshot.docs) {
         if (!currentIds.has(docSnap.id)) {
-          await docSnap.ref.delete();
+          await deleteDoc(docSnap.ref);
           console.log(`Deleted stale submission_kelas from Firestore: ${docSnap.id}`);
         }
       }
@@ -431,10 +429,10 @@ async function saveSubmissionsKelas(data: any[]) {
 async function loadSubmissionsIzin(): Promise<any[]> {
   if (firebaseActive && db) {
     try {
-      const colRef = db.collection("submissions_izin");
-      const querySnapshot = await colRef.get();
+      const colRef = collection(db, "submissions_izin");
+      const querySnapshot = await getDocs(colRef);
       const list: any[] = [];
-      querySnapshot.forEach((doc: any) => {
+      querySnapshot.forEach((doc) => {
         list.push(doc.data());
       });
       return list.sort((a, b) => new Date(a.submittedAt || 0).getTime() - new Date(b.submittedAt || 0).getTime());
@@ -464,15 +462,15 @@ async function saveSubmissionsIzin(data: any[]) {
   if (firebaseActive && db) {
     try {
       for (const item of data) {
-        const docRef = db.collection("submissions_izin").doc(item.id);
-        await docRef.set(item);
+        const docRef = doc(db, "submissions_izin", item.id);
+        await setDoc(docRef, item);
       }
-      const colRef = db.collection("submissions_izin");
-      const querySnapshot = await colRef.get();
+      const colRef = collection(db, "submissions_izin");
+      const querySnapshot = await getDocs(colRef);
       const currentIds = new Set(data.map(item => item.id));
       for (const docSnap of querySnapshot.docs) {
         if (!currentIds.has(docSnap.id)) {
-          await docSnap.ref.delete();
+          await deleteDoc(docSnap.ref);
           console.log(`Deleted stale submission_izin from Firestore: ${docSnap.id}`);
         }
       }
