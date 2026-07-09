@@ -177,7 +177,8 @@ async function syncWithGoogleSheet() {
 }
 
 // Submissions File Database setup
-const DATA_DIR = path.join(process.cwd(), "src", "data");
+const isVercel = !!process.env.VERCEL;
+const DATA_DIR = isVercel ? "/tmp" : path.join(process.cwd(), "src", "data");
 const KELAS_SUBMISSIONS_FILE = path.join(DATA_DIR, "submissions_kelas.json");
 const IZIN_SUBMISSIONS_FILE = path.join(DATA_DIR, "submissions_izin.json");
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
@@ -331,18 +332,16 @@ function saveSubmissionsIzin(data: any[]) {
   }
 }
 
-// Start Server configuration
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
+const app = express();
+const PORT = 3000;
 
-  app.use(express.json());
+app.use(express.json());
 
-  // Initialize data files
-  ensureDataDirectory();
+// Initialize data files
+ensureDataDirectory();
 
-  // Initial Sync with Google Sheet
-  await syncWithGoogleSheet();
+// Sync with Google Sheet
+syncWithGoogleSheet();
 
   // API: Sync Google Sheets manually (can be triggered by main admin)
   app.post("/api/sync", async (req, res) => {
@@ -631,23 +630,27 @@ async function startServer() {
   });
 
   // Vite integration
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
-    });
+  if (!process.env.VERCEL) {
+    if (process.env.NODE_ENV !== "production") {
+      createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      }).then((vite) => {
+        app.use(vite.middlewares);
+        app.listen(PORT, "0.0.0.0", () => {
+          console.log(`Server running on http://0.0.0.0:${PORT}`);
+        });
+      });
+    } else {
+      const distPath = path.join(process.cwd(), "dist");
+      app.use(express.static(distPath));
+      app.get("*", (req, res) => {
+        res.sendFile(path.join(distPath, "index.html"));
+      });
+      app.listen(PORT, "0.0.0.0", () => {
+        console.log(`Server running on http://0.0.0.0:${PORT}`);
+      });
+    }
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
-  });
-}
-
-startServer();
+export default app;
