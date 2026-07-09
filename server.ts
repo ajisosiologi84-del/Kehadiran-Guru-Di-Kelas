@@ -117,6 +117,26 @@ async function fetchWithTimeout(url: string, options: any = {}, timeoutMs = 4000
   }
 }
 
+// Helper to wrap any Promise with a timeout
+function promiseWithTimeout<T>(promise: Promise<T>, timeoutMs = 3000, label = "Operation"): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    promise.then(
+      (res) => {
+        clearTimeout(timer);
+        resolve(res);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
 const SHEETS_URL = "https://docs.google.com/spreadsheets/d/1I-L5m4C7jOK-3y2hKnzhQEb9GDFzqot7YylhvooC7AM/gviz/tq?tqx=out:csv&sheet=DATA_UTAMA";
 
 // Helper to parse a line of CSV handling quoted commas
@@ -327,7 +347,7 @@ async function loadSettings(): Promise<{ appsScriptUrl: string }> {
   if (firebaseActive && db) {
     try {
       const docRef = doc(db, "settings", "config");
-      const docSnap = await getDoc(docRef);
+      const docSnap = await promiseWithTimeout(getDoc(docRef), 3000, "getDoc settings/config");
       if (docSnap.exists()) {
         return docSnap.data() as { appsScriptUrl: string };
       }
@@ -357,7 +377,7 @@ async function saveSettings(settings: { appsScriptUrl: string }) {
   if (firebaseActive && db) {
     try {
       const docRef = doc(db, "settings", "config");
-      await setDoc(docRef, settings);
+      await promiseWithTimeout(setDoc(docRef, settings), 3000, "setDoc settings/config");
       console.log("Settings synced to Firestore successfully.");
     } catch (err: any) {
       console.error("Failed to sync settings to Firestore:", err.message);
@@ -369,7 +389,7 @@ async function loadCachedScheduleFromFirestore() {
   if (firebaseActive && db) {
     try {
       const docRef = doc(db, "settings", "cached_schedule");
-      const docSnap = await getDoc(docRef);
+      const docSnap = await promiseWithTimeout(getDoc(docRef), 3000, "getDoc settings/cached_schedule");
       if (docSnap.exists()) {
         const data = docSnap.data();
         if (data && data.namaGuruList && data.namaGuruList.length > 0) {
@@ -387,7 +407,7 @@ async function saveCachedScheduleToFirestore() {
   if (firebaseActive && db) {
     try {
       const docRef = doc(db, "settings", "cached_schedule");
-      await setDoc(docRef, cachedScheduleData);
+      await promiseWithTimeout(setDoc(docRef, cachedScheduleData), 3000, "setDoc settings/cached_schedule");
       console.log("Cached schedule data saved to Firestore successfully.");
     } catch (err: any) {
       console.error("Failed to save cached schedule to Firestore:", err.message);
@@ -434,7 +454,7 @@ async function loadSubmissionsKelas(): Promise<any[]> {
   if (firebaseActive && db) {
     try {
       const colRef = collection(db, "submissions_kelas");
-      const querySnapshot = await getDocs(colRef);
+      const querySnapshot = await promiseWithTimeout(getDocs(colRef), 3000, "getDocs submissions_kelas");
       const list: any[] = [];
       querySnapshot.forEach((doc) => {
         list.push(doc.data());
@@ -465,18 +485,26 @@ async function saveSubmissionsKelas(data: any[]) {
 
   if (firebaseActive && db) {
     try {
-      for (const item of data) {
+      // Set all documents concurrently with a timeout
+      const writePromises = data.map(item => {
         const docRef = doc(db, "submissions_kelas", item.id);
-        await setDoc(docRef, item);
-      }
+        return setDoc(docRef, item);
+      });
+      await promiseWithTimeout(Promise.all(writePromises), 3000, "setDoc submissions_kelas batch");
+
+      // Cleanup stale documents in Firestore
       const colRef = collection(db, "submissions_kelas");
-      const querySnapshot = await getDocs(colRef);
+      const querySnapshot = await promiseWithTimeout(getDocs(colRef), 2000, "getDocs submissions_kelas for cleanup");
       const currentIds = new Set(data.map(item => item.id));
+      const deletePromises: Promise<any>[] = [];
       for (const docSnap of querySnapshot.docs) {
         if (!currentIds.has(docSnap.id)) {
-          await deleteDoc(docSnap.ref);
-          console.log(`Deleted stale submission_kelas from Firestore: ${docSnap.id}`);
+          deletePromises.push(deleteDoc(docSnap.ref));
         }
+      }
+      if (deletePromises.length > 0) {
+        await promiseWithTimeout(Promise.all(deletePromises), 2000, "deleteDoc submissions_kelas stale batch");
+        console.log(`Successfully deleted ${deletePromises.length} stale submissions_kelas from Firestore.`);
       }
     } catch (err: any) {
       console.error("Failed to sync submissions kelas to Firestore:", err.message);
@@ -488,7 +516,7 @@ async function loadSubmissionsIzin(): Promise<any[]> {
   if (firebaseActive && db) {
     try {
       const colRef = collection(db, "submissions_izin");
-      const querySnapshot = await getDocs(colRef);
+      const querySnapshot = await promiseWithTimeout(getDocs(colRef), 3000, "getDocs submissions_izin");
       const list: any[] = [];
       querySnapshot.forEach((doc) => {
         list.push(doc.data());
@@ -519,18 +547,26 @@ async function saveSubmissionsIzin(data: any[]) {
 
   if (firebaseActive && db) {
     try {
-      for (const item of data) {
+      // Set all documents concurrently with a timeout
+      const writePromises = data.map(item => {
         const docRef = doc(db, "submissions_izin", item.id);
-        await setDoc(docRef, item);
-      }
+        return setDoc(docRef, item);
+      });
+      await promiseWithTimeout(Promise.all(writePromises), 3000, "setDoc submissions_izin batch");
+
+      // Cleanup stale documents in Firestore
       const colRef = collection(db, "submissions_izin");
-      const querySnapshot = await getDocs(colRef);
+      const querySnapshot = await promiseWithTimeout(getDocs(colRef), 2000, "getDocs submissions_izin for cleanup");
       const currentIds = new Set(data.map(item => item.id));
+      const deletePromises: Promise<any>[] = [];
       for (const docSnap of querySnapshot.docs) {
         if (!currentIds.has(docSnap.id)) {
-          await deleteDoc(docSnap.ref);
-          console.log(`Deleted stale submission_izin from Firestore: ${docSnap.id}`);
+          deletePromises.push(deleteDoc(docSnap.ref));
         }
+      }
+      if (deletePromises.length > 0) {
+        await promiseWithTimeout(Promise.all(deletePromises), 2000, "deleteDoc submissions_izin stale batch");
+        console.log(`Successfully deleted ${deletePromises.length} stale submissions_izin from Firestore.`);
       }
     } catch (err: any) {
       console.error("Failed to sync submissions izin to Firestore:", err.message);
@@ -707,7 +743,11 @@ initApp();
       // If we haven't synced yet, or if the user is not in the cached list, let's sync live first!
       if (cachedScheduleData.lastSync === "Never (Using Fallback)" || !cachedScheduleData.classAdmins[normUsername]) {
         console.log(`User ${normUsername} not in cache or first sync. Performing on-demand sync from Google Sheet...`);
-        await syncWithGoogleSheet();
+        try {
+          await syncWithGoogleSheet();
+        } catch (syncErr: any) {
+          console.error("Failed on-demand sync with Google Sheet during student login:", syncErr.message);
+        }
       }
 
       // Validate Class Admin against cached spreadsheet logins
