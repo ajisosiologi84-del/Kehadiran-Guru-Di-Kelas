@@ -207,7 +207,7 @@ async function syncWithGoogleSheet() {
             const text = await response.text();
             if (!text.trim().startsWith("<!DOCTYPE") && !text.trim().startsWith("<html")) {
               const result = JSON.parse(text);
-              if (result.success && result.namaGuruList && result.namaGuruList.length > 0) {
+              if (result && result.namaGuruList && result.namaGuruList.length > 0) {
                 cachedScheduleData = {
                   namaGuruList: result.namaGuruList,
                   mataPelajaranList: result.mataPelajaranList && result.mataPelajaranList.length > 0 ? result.mataPelajaranList : FALLBACK_MATA_PELAJARAN,
@@ -218,16 +218,16 @@ async function syncWithGoogleSheet() {
                 console.log("Successfully synced schedule and class admins via Apps Script Web App!");
                 return;
               } else {
-                console.warn("Apps Script schedule sync returned unsuccessful or empty data:", result.error || "unknown error");
+                console.log("Apps Script did not return schedule data lists, falling back to direct spreadsheet CSV fetch.");
               }
             } else {
-              console.warn("Apps Script schedule sync returned HTML. Falling back to public spreadsheet CSV.");
+              console.log("Apps Script returned HTML, falling back to direct spreadsheet CSV fetch.");
             }
           } else {
-            console.warn("Apps Script schedule sync request failed with status:", response.status);
+            console.log(`Apps Script schedule sync request failed with status: ${response.status}, falling back to direct CSV fetch.`);
           }
         } catch (scriptErr: any) {
-          console.error("Failed to fetch from Apps Script Web App, falling back to public spreadsheet:", scriptErr.message);
+          console.log("Failed to fetch from Apps Script Web App, falling back to direct spreadsheet CSV:", scriptErr.message);
         }
       }
     }
@@ -598,15 +598,21 @@ const PORT = 3000;
 
 app.use(express.json());
 
-// Initialize data files & load firebase cache on server startup
-async function initApp() {
-  ensureDataDirectory();
-  await loadCachedScheduleFromFirestore();
-  // Sync with Google Sheet in background
-  syncWithGoogleSheet().then(async () => {
-    await saveCachedScheduleToFirestore();
+// Initialize data files & load firebase cache on server startup (non-blocking to prevent startup timeouts in serverless environments like Vercel)
+function initApp() {
+  try {
+    ensureDataDirectory();
+  } catch (err: any) {
+    console.error("Failed to ensure data directory on startup:", err.message);
+  }
+  
+  // Load and sync asynchronously in the background
+  loadCachedScheduleFromFirestore().then(() => {
+    return syncWithGoogleSheet().then(async () => {
+      await saveCachedScheduleToFirestore();
+    });
   }).catch(err => {
-    console.error("Background sync with Google Sheet failed:", err.message);
+    console.log("Initial background schedule load/sync finished or failed:", err.message);
   });
 }
 
