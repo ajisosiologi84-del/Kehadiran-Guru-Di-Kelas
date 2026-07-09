@@ -8,7 +8,6 @@ import path from "path";
 import fs from "fs";
 import { initializeApp } from "firebase/app";
 import { initializeFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs } from "firebase/firestore";
-import firebaseConfig from "./firebase-applet-config.json";
 
 const fallbackSettings = { appsScriptUrl: "" };
 const fallbackSubmissionsKelas: any[] = [];
@@ -20,13 +19,19 @@ let db: any = null;
 let firebaseActive = false;
 
 try {
-  if (firebaseConfig && firebaseConfig.apiKey) {
-    firebaseApp = initializeApp(firebaseConfig);
-    db = initializeFirestore(firebaseApp, {}, firebaseConfig.firestoreDatabaseId || "(default)");
-    firebaseActive = true;
-    console.log("Firebase Web SDK Firestore initialized successfully with databaseId:", firebaseConfig.firestoreDatabaseId || "(default)");
+  const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+  if (fs.existsSync(configPath)) {
+    const firebaseConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    if (firebaseConfig && firebaseConfig.apiKey) {
+      firebaseApp = initializeApp(firebaseConfig);
+      db = initializeFirestore(firebaseApp, {}, firebaseConfig.firestoreDatabaseId || "(default)");
+      firebaseActive = true;
+      console.log("Firebase Web SDK Firestore initialized successfully with databaseId:", firebaseConfig.firestoreDatabaseId || "(default)");
+    } else {
+      console.log("firebase-applet-config.json configuration is empty, running without Firebase persistence.");
+    }
   } else {
-    console.log("firebase-applet-config.json configuration is empty, running without Firebase persistence.");
+    console.log("firebase-applet-config.json not found, running without Firebase persistence.");
   }
 } catch (err: any) {
   console.error("Failed to initialize Firebase:", err.message);
