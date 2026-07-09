@@ -9,6 +9,7 @@ import LoginForm from "./components/LoginForm";
 import StudentInputForm from "./components/StudentInputForm";
 import TeacherLeaveForm from "./components/TeacherLeaveForm";
 import AdminDashboard from "./components/AdminDashboard";
+import { FirebaseService } from "./firebase";
 import {
   GraduationCap, ClipboardList, BookOpen, KeyRound, CalendarDays, ExternalLink,
   ChevronRight, ArrowLeft, Loader2, RefreshCw, LayoutDashboard, ShieldCheck
@@ -37,13 +38,8 @@ export default function App() {
   const fetchSchedule = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch("/api/schedule");
-      if (res.ok) {
-        const data = await res.json();
-        setScheduleData(data);
-      } else {
-        setError("Gagal memuat jadwal dari server.");
-      }
+      const data = await FirebaseService.getScheduleData();
+      setScheduleData(data);
     } catch (e) {
       setError("Kesalahan koneksi jaringan saat memuat data.");
     } finally {

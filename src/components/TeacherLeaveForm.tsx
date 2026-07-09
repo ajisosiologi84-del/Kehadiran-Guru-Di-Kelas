@@ -5,6 +5,7 @@
 
 import { useState, useEffect, FormEvent } from "react";
 import { ScheduleData, TeacherLeaveSubmission } from "../types";
+import { FirebaseService } from "../firebase";
 import { Calendar, User, BookOpen, Clock, FileText, CheckCircle2, AlertCircle, HelpCircle } from "lucide-react";
 
 interface TeacherLeaveFormProps {
@@ -56,13 +57,10 @@ export default function TeacherLeaveForm({ scheduleData }: TeacherLeaveFormProps
 
   const fetchRecentLeaves = async () => {
     try {
-      const res = await fetch("/api/submissions/izin");
-      if (res.ok) {
-        const data: TeacherLeaveSubmission[] = await res.json();
-        // Sort newest first, take top 5
-        data.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
-        setRecentLeaves(data.slice(0, 5));
-      }
+      const data = await FirebaseService.getSubmissionsIzin();
+      // Sort newest first, take top 5
+      data.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+      setRecentLeaves(data.slice(0, 5));
     } catch (e) {
       console.error("Gagal memuat daftar izin terbaru:", e);
     }
@@ -92,33 +90,25 @@ export default function TeacherLeaveForm({ scheduleData }: TeacherLeaveFormProps
     setIsSubmitting(true);
 
     try {
-      const res = await fetch("/api/submissions/izin", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          hari,
-          tanggal,
-          namaGuru: selectedGuru,
-          mataPelajaran: selectedMapel,
-          jamKe: jamKeString,
-          keteranganKehadiran: keterangan,
-          keteranganIzinGuru: keteranganIzin
-        })
+      await FirebaseService.addSubmissionIzin({
+        hari,
+        tanggal,
+        namaGuru: selectedGuru,
+        mataPelajaran: selectedMapel,
+        jamKe: jamKeString,
+        keteranganKehadiran: keterangan,
+        keteranganIzinGuru: keteranganIzin
       });
 
-      const result = await res.json();
-      if (res.ok && result.success) {
-        setMessage({
-          type: "success",
-          text: `Berhasil mengirimkan permohonan izin untuk: ${selectedGuru}`
-        });
-        setKeteranganIzin("");
-        fetchRecentLeaves();
-      } else {
-        setMessage({ type: "error", text: result.error || "Gagal mengirimkan data." });
-      }
-    } catch (err) {
-      setMessage({ type: "error", text: "Terjadi kesalahan jaringan." });
+      setMessage({
+        type: "success",
+        text: `Berhasil mengirimkan permohonan izin untuk: ${selectedGuru}`
+      });
+      setKeteranganIzin("");
+      fetchRecentLeaves();
+    } catch (err: any) {
+      console.error("Leave submission error:", err);
+      setMessage({ type: "error", text: err.message || "Gagal mengirimkan permohonan izin." });
     } finally {
       setIsSubmitting(false);
     }

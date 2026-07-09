@@ -47,4 +47,5 @@ export interface ScheduleData {
   mataPelajaranList: string[];
   jamKeList: string[];
   classAdmins: Record<string, string>; // username -> password
+  lastSync?: string;
 }

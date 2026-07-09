@@ -5,6 +5,7 @@
 
 import { useState, useEffect, FormEvent } from "react";
 import { ScheduleData, StudentSubmission } from "../types";
+import { FirebaseService } from "../firebase";
 import { ClipboardList, Calendar, User, BookOpen, Clock, FileCheck, CheckCircle2, AlertCircle } from "lucide-react";
 
 interface StudentInputFormProps {
@@ -59,15 +60,12 @@ export default function StudentInputForm({ scheduleData, username }: StudentInpu
 
   const fetchMySubmissions = async () => {
     try {
-      const res = await fetch("/api/submissions/kelas");
-      if (res.ok) {
-        const data: StudentSubmission[] = await res.json();
-        // Filter submissions done by this class admin
-        const filtered = data.filter(s => s.submittedBy === username);
-        // Sort newest first
-        filtered.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
-        setMySubmissions(filtered);
-      }
+      const data = await FirebaseService.getSubmissionsKelas();
+      // Filter submissions done by this class admin
+      const filtered = data.filter(s => s.submittedBy === username);
+      // Sort newest first
+      filtered.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+      setMySubmissions(filtered);
     } catch (e) {
       console.error("Gagal memuat riwayat penginputan:", e);
     }
@@ -97,32 +95,24 @@ export default function StudentInputForm({ scheduleData, username }: StudentInpu
     setIsSubmitting(true);
 
     try {
-      const res = await fetch("/api/submissions/kelas", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          hari,
-          tanggal,
-          namaGuru: selectedGuru,
-          mataPelajaran: selectedMapel,
-          jamKe: jamKeString,
-          keteranganKehadiran: keterangan,
-          submittedBy: username
-        })
+      await FirebaseService.addSubmissionKelas({
+        hari,
+        tanggal,
+        namaGuru: selectedGuru,
+        mataPelajaran: selectedMapel,
+        jamKe: jamKeString,
+        keteranganKehadiran: keterangan,
+        submittedBy: username
       });
 
-      const result = await res.json();
-      if (res.ok && result.success) {
-        setMessage({
-          type: "success",
-          text: `Berhasil melaporkan kehadiran Guru: ${selectedGuru} [${keterangan}]`
-        });
-        fetchMySubmissions();
-      } else {
-        setMessage({ type: "error", text: result.error || "Gagal mengirimkan laporan." });
-      }
-    } catch (err) {
-      setMessage({ type: "error", text: "Terjadi kesalahan jaringan saat mengirimkan data." });
+      setMessage({
+        type: "success",
+        text: `Berhasil melaporkan kehadiran Guru: ${selectedGuru} [${keterangan}]`
+      });
+      fetchMySubmissions();
+    } catch (err: any) {
+      console.error("Submission error:", err);
+      setMessage({ type: "error", text: err.message || "Terjadi kesalahan saat mengirimkan data." });
     } finally {
       setIsSubmitting(false);
     }

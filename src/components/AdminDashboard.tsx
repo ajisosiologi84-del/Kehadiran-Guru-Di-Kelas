@@ -5,6 +5,7 @@
 
 import { useState, useEffect } from "react";
 import { StudentSubmission, TeacherLeaveSubmission, AdminRole, ScheduleData } from "../types";
+import { FirebaseService } from "../firebase";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell
@@ -74,27 +75,19 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
 
   const handleSaveKelas = async (id: string) => {
     try {
-      const res = await fetch(`/api/submissions/kelas/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          namaGuru: editNamaGuru,
-          mataPelajaran: editMataPelajaran,
-          jamKe: editJamKe,
-          keteranganKehadiran: editKeteranganKehadiran,
-          hari: editHari,
-          tanggal: editTanggal
-        })
+      const updated = await FirebaseService.updateSubmissionKelas(id, {
+        namaGuru: editNamaGuru,
+        mataPelajaran: editMataPelajaran,
+        jamKe: editJamKe,
+        keteranganKehadiran: editKeteranganKehadiran,
+        hari: editHari,
+        tanggal: editTanggal
       });
-      if (res.ok) {
-        const result = await res.json();
-        setSubmissionsKelas(prev => prev.map(item => item.id === id ? { ...item, ...result.data } : item));
-        setEditingKelasId(null);
-      } else {
-        alert("Gagal menyimpan perubahan.");
-      }
-    } catch (e) {
-      alert("Terjadi kesalahan jaringan.");
+      setSubmissionsKelas(prev => prev.map(item => item.id === id ? { ...item, ...updated } : item));
+      setEditingKelasId(null);
+    } catch (e: any) {
+      console.error(e);
+      alert("Gagal menyimpan perubahan: " + (e.message || e));
     }
   };
 
@@ -115,28 +108,20 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
 
   const handleSaveIzin = async (id: string) => {
     try {
-      const res = await fetch(`/api/submissions/izin/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          namaGuru: editNamaGuru,
-          mataPelajaran: editMataPelajaran,
-          jamKe: editJamKe,
-          keteranganKehadiran: editKeteranganKehadiran,
-          keteranganIzinGuru: editKeteranganIzinGuru,
-          hari: editHari,
-          tanggal: editTanggal
-        })
+      const updated = await FirebaseService.updateSubmissionIzin(id, {
+        namaGuru: editNamaGuru,
+        mataPelajaran: editMataPelajaran,
+        jamKe: editJamKe,
+        keteranganKehadiran: editKeteranganKehadiran,
+        keteranganIzinGuru: editKeteranganIzinGuru,
+        hari: editHari,
+        tanggal: editTanggal
       });
-      if (res.ok) {
-        const result = await res.json();
-        setSubmissionsIzin(prev => prev.map(item => item.id === id ? { ...item, ...result.data } : item));
-        setEditingIzinId(null);
-      } else {
-        alert("Gagal menyimpan perubahan.");
-      }
-    } catch (e) {
-      alert("Terjadi kesalahan jaringan.");
+      setSubmissionsIzin(prev => prev.map(item => item.id === id ? { ...item, ...updated } : item));
+      setEditingIzinId(null);
+    } catch (e: any) {
+      console.error(e);
+      alert("Gagal menyimpan perubahan: " + (e.message || e));
     }
   };
 
@@ -147,11 +132,8 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
 
   const fetchSettings = async () => {
     try {
-      const res = await fetch("/api/settings");
-      if (res.ok) {
-        const data = await res.json();
-        setAppsScriptUrl(data.appsScriptUrl || "");
-      }
+      const data = await FirebaseService.getSettings();
+      setAppsScriptUrl(data.appsScriptUrl || "");
     } catch (e) {
       console.error("Gagal memuat konfigurasi Google Apps Script:", e);
     }
@@ -160,18 +142,11 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
   const handleSaveSettings = async () => {
     setIsSavingSettings(true);
     try {
-      const res = await fetch("/api/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ appsScriptUrl })
-      });
-      if (res.ok) {
-        alert("URL Google Apps Script berhasil disimpan!");
-      } else {
-        alert("Gagal menyimpan URL.");
-      }
-    } catch (e) {
-      alert("Terjadi kesalahan koneksi.");
+      await FirebaseService.saveSettings({ appsScriptUrl });
+      alert("URL Google Apps Script berhasil disimpan!");
+    } catch (e: any) {
+      console.error(e);
+      alert("Gagal menyimpan URL: " + (e.message || e));
     } finally {
       setIsSavingSettings(false);
     }
@@ -181,18 +156,11 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
     setIsSyncingAll(true);
     setSyncMessage(null);
     try {
-      const res = await fetch("/api/sync/sheets", {
-        method: "POST"
-      });
-      const result = await res.json();
-      if (res.ok && result.success) {
-        setSyncMessage({ type: "success", text: result.message });
-        alert("Sukses! Semua data input kelas dan guru berhasil disinkronisasikan ke Google Sheet.");
-      } else {
-        setSyncMessage({ type: "error", text: result.error || "Gagal melakukan sinkronisasi massal." });
-      }
+      await FirebaseService.syncAllToGoogleSheet(submissionsKelas, submissionsIzin);
+      setSyncMessage({ type: "success", text: "Berhasil menyinkronkan seluruh data ke Google Sheet!" });
+      alert("Sukses! Semua data input kelas dan guru berhasil disinkronisasikan ke Google Sheet.");
     } catch (e: any) {
-      setSyncMessage({ type: "error", text: "Gagal terhubung ke server: " + e.message });
+      setSyncMessage({ type: "error", text: e.message || "Gagal melakukan sinkronisasi massal." });
     } finally {
       setIsSyncingAll(false);
     }
@@ -200,22 +168,17 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
 
   const fetchData = async () => {
     try {
-      const [resKelas, resIzin] = await Promise.all([
-        fetch("/api/submissions/kelas"),
-        fetch("/api/submissions/izin")
+      const [dataKelas, dataIzin] = await Promise.all([
+        FirebaseService.getSubmissionsKelas(),
+        FirebaseService.getSubmissionsIzin()
       ]);
 
-      if (resKelas.ok) {
-        const data = await resKelas.json();
-        // Sort newest first
-        data.sort((a: any, b: any) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
-        setSubmissionsKelas(data);
-      }
-      if (resIzin.ok) {
-        const data = await resIzin.json();
-        data.sort((a: any, b: any) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
-        setSubmissionsIzin(data);
-      }
+      // Sort newest first
+      dataKelas.sort((a: any, b: any) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+      setSubmissionsKelas(dataKelas);
+
+      dataIzin.sort((a: any, b: any) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+      setSubmissionsIzin(dataIzin);
     } catch (e) {
       console.error("Gagal memuat data dashboard:", e);
     }
@@ -224,15 +187,12 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
   const handleSync = async () => {
     setIsSyncing(true);
     try {
-      const res = await fetch("/api/sync", { method: "POST" });
-      if (res.ok) {
-        const result = await res.json();
-        setLastSync(new Date(result.lastSync).toLocaleTimeString("id-ID") + " " + new Date(result.lastSync).toLocaleDateString("id-ID"));
-        alert("Berhasil menyinkronkan data guru dan admin kelas dengan Google Sheet!");
-        window.location.reload();
-      }
-    } catch (e) {
-      alert("Gagal menyinkronkan data.");
+      const result = await FirebaseService.syncWithGoogleSheet();
+      setLastSync(new Date(result.lastSync).toLocaleTimeString("id-ID") + " " + new Date(result.lastSync).toLocaleDateString("id-ID"));
+      alert("Berhasil menyinkronkan data guru dan admin kelas dengan Google Sheet!");
+      window.location.reload();
+    } catch (e: any) {
+      alert("Gagal menyinkronkan data: " + (e.message || e));
     } finally {
       setIsSyncing(false);
     }
@@ -241,28 +201,20 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
   const handleDeleteKelas = async (id: string, name: string) => {
     if (!window.confirm(`Hapus laporan kehadiran guru ${name}? Tindakan ini tidak dapat dibatalkan.`)) return;
     try {
-      const res = await fetch(`/api/submissions/kelas/${id}`, { method: "DELETE" });
-      if (res.ok) {
-        setSubmissionsKelas(prev => prev.filter(item => item.id !== id));
-      } else {
-        alert("Gagal menghapus.");
-      }
-    } catch (e) {
-      alert("Terjadi kesalahan.");
+      await FirebaseService.deleteSubmissionKelas(id);
+      setSubmissionsKelas(prev => prev.filter(item => item.id !== id));
+    } catch (e: any) {
+      alert("Terjadi kesalahan: " + (e.message || e));
     }
   };
 
   const handleDeleteIzin = async (id: string, name: string) => {
     if (!window.confirm(`Hapus laporan izin guru ${name}? Tindakan ini tidak dapat dibatalkan.`)) return;
     try {
-      const res = await fetch(`/api/submissions/izin/${id}`, { method: "DELETE" });
-      if (res.ok) {
-        setSubmissionsIzin(prev => prev.filter(item => item.id !== id));
-      } else {
-        alert("Gagal menghapus.");
-      }
-    } catch (e) {
-      alert("Terjadi kesalahan.");
+      await FirebaseService.deleteSubmissionIzin(id);
+      setSubmissionsIzin(prev => prev.filter(item => item.id !== id));
+    } catch (e: any) {
+      alert("Terjadi kesalahan: " + (e.message || e));
     }
   };
 

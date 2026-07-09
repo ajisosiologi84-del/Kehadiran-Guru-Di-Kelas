@@ -5,6 +5,7 @@
 
 import { useState, FormEvent } from "react";
 import { UserSession, AdminRole } from "../types";
+import { FirebaseService } from "../firebase";
 import { KeyRound, Users, GraduationCap, ShieldAlert } from "lucide-react";
 
 interface LoginFormProps {
@@ -26,34 +27,16 @@ export default function LoginForm({ onLoginSuccess, isLoading }: LoginFormProps)
     setIsSubmitting(true);
 
     try {
-      const response = await fetch("/api/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: loginType === "ADMIN" ? "admin" : username,
-          password,
-          type: loginType,
-          role: loginType === "ADMIN" ? adminRole : undefined,
-        }),
-      });
-
-      const contentType = response.headers.get("content-type");
-      if (contentType && contentType.includes("application/json")) {
-        const result = await response.json();
-        if (response.ok && result.success) {
-          onLoginSuccess(result.session);
-        } else {
-          setError(result.error || "Login gagal. Periksa kembali username dan password.");
-        }
-      } else {
-        // Handle non-JSON responses like HTML error pages from Vercel
-        const errorText = await response.text();
-        console.error("Non-JSON response received:", errorText);
-        setError(`Kesalahan Server (${response.status}): Gagal memproses permintaan login.`);
-      }
+      const session = await FirebaseService.performLogin(
+        username,
+        password,
+        loginType,
+        loginType === "ADMIN" ? adminRole : undefined
+      );
+      onLoginSuccess(session);
     } catch (err: any) {
-      console.error("Connection error during login:", err);
-      setError("Gagal terhubung ke server. Pastikan koneksi internet aktif dan coba lagi.");
+      console.error("Login error:", err);
+      setError(err.message || "Gagal melakukan verifikasi masuk.");
     } finally {
       setIsSubmitting(false);
     }
