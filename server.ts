@@ -8,6 +8,10 @@ import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
 
+import fallbackSettings from "./src/data/settings.json";
+import fallbackSubmissionsKelas from "./src/data/submissions_kelas.json";
+import fallbackSubmissionsIzin from "./src/data/submissions_izin.json";
+
 // Fallback backup schedule data if Google Sheet is unreachable
 const FALLBACK_NAMA_GURU = [
   "R. Imam Soebagyo, S.Pd",
@@ -189,27 +193,19 @@ function ensureDataDirectory() {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
 
-  const committedDataDir = path.join(process.cwd(), "src", "data");
-
   const filesToEnsure = [
-    { file: KELAS_SUBMISSIONS_FILE, defaultContent: "[]", committedFile: path.join(committedDataDir, "submissions_kelas.json") },
-    { file: IZIN_SUBMISSIONS_FILE, defaultContent: "[]", committedFile: path.join(committedDataDir, "submissions_izin.json") },
-    { file: SETTINGS_FILE, defaultContent: '{\n  "appsScriptUrl": ""\n}', committedFile: path.join(committedDataDir, "settings.json") }
+    { file: KELAS_SUBMISSIONS_FILE, data: fallbackSubmissionsKelas },
+    { file: IZIN_SUBMISSIONS_FILE, data: fallbackSubmissionsIzin },
+    { file: SETTINGS_FILE, data: fallbackSettings }
   ];
 
   for (const item of filesToEnsure) {
     if (!fs.existsSync(item.file)) {
-      if (isVercel && fs.existsSync(item.committedFile)) {
-        try {
-          const content = fs.readFileSync(item.committedFile, "utf-8");
-          fs.writeFileSync(item.file, content);
-          console.log(`Copied ${path.basename(item.file)} from committed src/data to ${item.file}`);
-        } catch (err: any) {
-          console.error(`Failed to copy committed ${path.basename(item.file)}:`, err.message);
-          fs.writeFileSync(item.file, item.defaultContent);
-        }
-      } else {
-        fs.writeFileSync(item.file, item.defaultContent);
+      try {
+        fs.writeFileSync(item.file, JSON.stringify(item.data, null, 2));
+        console.log(`Initialized ${path.basename(item.file)} in ${DATA_DIR}`);
+      } catch (err: any) {
+        console.error(`Failed to initialize ${path.basename(item.file)}:`, err.message);
       }
     }
   }
