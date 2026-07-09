@@ -6,7 +6,6 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
-import { createServer as createViteServer } from "vite";
 import { initializeApp } from "firebase/app";
 import { initializeFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs } from "firebase/firestore";
 
@@ -101,6 +100,23 @@ classesList.forEach(cls => {
   }
 });
 
+// Helper to fetch with a timeout using AbortController (prevents Vercel 10s timeout)
+async function fetchWithTimeout(url: string, options: any = {}, timeoutMs = 4000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    clearTimeout(id);
+    return response;
+  } catch (error) {
+    clearTimeout(id);
+    throw error;
+  }
+}
+
 const SHEETS_URL = "https://docs.google.com/spreadsheets/d/1I-L5m4C7jOK-3y2hKnzhQEb9GDFzqot7YylhvooC7AM/gviz/tq?tqx=out:csv&sheet=DATA_UTAMA";
 
 // Helper to parse a line of CSV handling quoted commas
@@ -142,11 +158,11 @@ async function syncWithGoogleSheet() {
       if (trimmedUrl && !trimmedUrl.includes("docs.google.com/spreadsheets")) {
         console.log("Syncing schedule and class admins via Apps Script Web App...");
         try {
-          const response = await fetch(trimmedUrl, {
+          const response = await fetchWithTimeout(trimmedUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ action: "get_schedule" })
-          });
+          }, 4000);
           
           if (response.ok) {
             const text = await response.text();
@@ -178,7 +194,7 @@ async function syncWithGoogleSheet() {
     }
 
     console.log("Fetching live data from Google Sheet CSV directly...");
-    const response = await fetch(SHEETS_URL);
+    const response = await fetchWithTimeout(SHEETS_URL, {}, 4000);
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
@@ -394,7 +410,7 @@ async function asyncPushToSheets(action: "add" | "edit" | "delete", type: "kelas
   
   try {
     console.log(`Pushing ${action} of ${type} to Google Sheet via Apps Script...`);
-    const res = await fetch(trimmedUrl, {
+    const res = await fetchWithTimeout(trimmedUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -402,7 +418,7 @@ async function asyncPushToSheets(action: "add" | "edit" | "delete", type: "kelas
         type,
         payload
       })
-    });
+    }, 4000);
     const text = await res.text();
     if (text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html")) {
       console.error("Apps Script push returned HTML instead of JSON. Ensure web app is deployed with 'Anyone' access.");
@@ -605,7 +621,7 @@ initApp();
       const izinData = await loadSubmissionsIzin();
 
       console.log("Syncing all data to Google Sheets via Apps Script...");
-      const response = await fetch(trimmedUrl, {
+      const response = await fetchWithTimeout(trimmedUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -613,7 +629,7 @@ initApp();
           kelasData,
           izinData
         })
-      });
+      }, 5000);
 
       const text = await response.text();
       console.log("Apps Script sync response text (length):", text.length);
@@ -856,13 +872,15 @@ initApp();
   // Vite integration
   if (!process.env.VERCEL) {
     if (process.env.NODE_ENV !== "production") {
-      createViteServer({
-        server: { middlewareMode: true },
-        appType: "spa",
-      }).then((vite) => {
-        app.use(vite.middlewares);
-        app.listen(PORT, "0.0.0.0", () => {
-          console.log(`Server running on http://0.0.0.0:${PORT}`);
+      import("vite").then(({ createServer: createViteServer }) => {
+        createViteServer({
+          server: { middlewareMode: true },
+          appType: "spa",
+        }).then((vite) => {
+          app.use(vite.middlewares);
+          app.listen(PORT, "0.0.0.0", () => {
+            console.log(`Server running on http://0.0.0.0:${PORT}`);
+          });
         });
       });
     } else {
