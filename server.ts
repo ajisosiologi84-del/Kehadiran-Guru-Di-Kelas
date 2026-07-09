@@ -9,16 +9,7 @@ import fs from "fs";
 import { initializeApp } from "firebase/app";
 import { initializeFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs } from "firebase/firestore";
 
-// Safely read firebase-applet-config.json using fs to prevent ESM JSON runtime import errors in Node.js / Vercel
-let firebaseConfigImport: any = null;
-try {
-  const configPath = path.join(process.cwd(), "firebase-applet-config.json");
-  if (fs.existsSync(configPath)) {
-    firebaseConfigImport = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-  }
-} catch (err: any) {
-  console.error("Failed to read firebase-applet-config.json:", err.message);
-}
+import firebaseConfigImport from "./firebase-applet-config.json" assert { type: "json" };
 
 const fallbackSettings = { appsScriptUrl: "" };
 const fallbackSubmissionsKelas: any[] = [];
@@ -606,13 +597,22 @@ function initApp() {
     console.error("Failed to ensure data directory on startup:", err.message);
   }
   
-  // Load and sync asynchronously in the background
-  loadCachedScheduleFromFirestore().then(() => {
-    return syncWithGoogleSheet().then(async () => {
-      await saveCachedScheduleToFirestore();
-    });
+  // Load cached schedule from Firestore on startup (non-blocking, fast)
+  loadCachedScheduleFromFirestore().then(async () => {
+    // Only perform an automatic sheet sync on startup IF we have no cached schedule at all
+    if (cachedScheduleData.lastSync === "Never (Using Fallback)") {
+      console.log("No schedule cache found in Firestore, initiating initial sync with Google Sheets...");
+      try {
+        await syncWithGoogleSheet();
+        await saveCachedScheduleToFirestore();
+      } catch (err: any) {
+        console.error("Initial Google Sheets sync failed:", err.message);
+      }
+    } else {
+      console.log("Schedule loaded from Firestore cache. Skipping automatic Google Sheets sync on startup.");
+    }
   }).catch(err => {
-    console.log("Initial background schedule load/sync finished or failed:", err.message);
+    console.error("Failed to load schedule cache from Firestore on startup:", err.message);
   });
 }
 
