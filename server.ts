@@ -188,14 +188,30 @@ function ensureDataDirectory() {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
-  if (!fs.existsSync(KELAS_SUBMISSIONS_FILE)) {
-    fs.writeFileSync(KELAS_SUBMISSIONS_FILE, JSON.stringify([], null, 2));
-  }
-  if (!fs.existsSync(IZIN_SUBMISSIONS_FILE)) {
-    fs.writeFileSync(IZIN_SUBMISSIONS_FILE, JSON.stringify([], null, 2));
-  }
-  if (!fs.existsSync(SETTINGS_FILE)) {
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ appsScriptUrl: "" }, null, 2));
+
+  const committedDataDir = path.join(process.cwd(), "src", "data");
+
+  const filesToEnsure = [
+    { file: KELAS_SUBMISSIONS_FILE, defaultContent: "[]", committedFile: path.join(committedDataDir, "submissions_kelas.json") },
+    { file: IZIN_SUBMISSIONS_FILE, defaultContent: "[]", committedFile: path.join(committedDataDir, "submissions_izin.json") },
+    { file: SETTINGS_FILE, defaultContent: '{\n  "appsScriptUrl": ""\n}', committedFile: path.join(committedDataDir, "settings.json") }
+  ];
+
+  for (const item of filesToEnsure) {
+    if (!fs.existsSync(item.file)) {
+      if (isVercel && fs.existsSync(item.committedFile)) {
+        try {
+          const content = fs.readFileSync(item.committedFile, "utf-8");
+          fs.writeFileSync(item.file, content);
+          console.log(`Copied ${path.basename(item.file)} from committed src/data to ${item.file}`);
+        } catch (err: any) {
+          console.error(`Failed to copy committed ${path.basename(item.file)}:`, err.message);
+          fs.writeFileSync(item.file, item.defaultContent);
+        }
+      } else {
+        fs.writeFileSync(item.file, item.defaultContent);
+      }
+    }
   }
 }
 
@@ -266,8 +282,7 @@ async function asyncPushToSheets(action: "add" | "edit" | "delete", type: "kelas
   
   try {
     console.log(`Pushing ${action} of ${type} to Google Sheet via Apps Script...`);
-    // Run fetch in a non-blocking background way so it doesn't slow down the response
-    fetch(trimmedUrl, {
+    const res = await fetch(trimmedUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -275,20 +290,15 @@ async function asyncPushToSheets(action: "add" | "edit" | "delete", type: "kelas
         type,
         payload
       })
-    })
-    .then(async (res) => {
-      const text = await res.text();
-      if (text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html")) {
-        console.error("Apps Script background push returned HTML instead of JSON. Ensure web app is deployed with 'Anyone' access.");
-      } else {
-        console.log("Apps Script sync response text:", text);
-      }
-    })
-    .catch((err) => {
-      console.error("Apps Script sync non-blocking catch:", err.message);
     });
+    const text = await res.text();
+    if (text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html")) {
+      console.error("Apps Script push returned HTML instead of JSON. Ensure web app is deployed with 'Anyone' access.");
+    } else {
+      console.log("Apps Script sync response text:", text);
+    }
   } catch (error: any) {
-    console.error("Error setting up sync with Apps Script:", error.message);
+    console.error("Error pushing to Apps Script:", error.message);
   }
 }
 
@@ -432,7 +442,7 @@ syncWithGoogleSheet();
   });
 
   // API: Login verification
-  app.post("/api/login", (req, res) => {
+  app.post("/api/login", async (req, res) => {
     const { username, password, type, role } = req.body;
 
     if (!username || !password || !type) {
@@ -470,6 +480,12 @@ syncWithGoogleSheet();
         return res.status(401).json({ success: false, error: "Password atau Role Admin tidak cocok" });
       }
     } else if (type === "STUDENT") {
+      // If we haven't synced yet, or if the user is not in the cached list, let's sync live first!
+      if (cachedScheduleData.lastSync === "Never (Using Fallback)" || !cachedScheduleData.classAdmins[normUsername]) {
+        console.log(`User ${normUsername} not in cache or first sync. Performing on-demand sync from Google Sheet...`);
+        await syncWithGoogleSheet();
+      }
+
       // Validate Class Admin against cached spreadsheet logins
       const expectedPassword = cachedScheduleData.classAdmins[normUsername];
       if (expectedPassword && expectedPassword === password) {
@@ -495,7 +511,7 @@ syncWithGoogleSheet();
   });
 
   // API: Add Student Class Submission
-  app.post("/api/submissions/kelas", (req, res) => {
+  app.post("/api/submissions/kelas", async (req, res) => {
     const record = req.body;
     if (!record.namaGuru || !record.mataPelajaran || !record.keteranganKehadiran || !record.submittedBy) {
       return res.status(400).json({ success: false, error: "Data input kelas tidak lengkap" });
@@ -516,13 +532,13 @@ syncWithGoogleSheet();
 
     data.push(newRecord);
     saveSubmissionsKelas(data);
-    asyncPushToSheets("add", "kelas", newRecord);
+    await asyncPushToSheets("add", "kelas", newRecord);
 
     res.status(201).json({ success: true, data: newRecord });
   });
 
   // API: Delete Student Class Submission
-  app.delete("/api/submissions/kelas/:id", (req, res) => {
+  app.delete("/api/submissions/kelas/:id", async (req, res) => {
     const { id } = req.params;
     let data = loadSubmissionsKelas();
     const initialLen = data.length;
@@ -531,12 +547,12 @@ syncWithGoogleSheet();
       return res.status(404).json({ success: false, error: "Data tidak ditemukan" });
     }
     saveSubmissionsKelas(data);
-    asyncPushToSheets("delete", "kelas", { id });
+    await asyncPushToSheets("delete", "kelas", { id });
     res.json({ success: true });
   });
 
   // API: Update Student Class Submission
-  app.put("/api/submissions/kelas/:id", (req, res) => {
+  app.put("/api/submissions/kelas/:id", async (req, res) => {
     const { id } = req.params;
     const record = req.body;
     const data = loadSubmissionsKelas();
@@ -554,7 +570,7 @@ syncWithGoogleSheet();
       tanggal: record.tanggal || data[index].tanggal
     };
     saveSubmissionsKelas(data);
-    asyncPushToSheets("edit", "kelas", data[index]);
+    await asyncPushToSheets("edit", "kelas", data[index]);
     res.json({ success: true, data: data[index] });
   });
 
@@ -565,7 +581,7 @@ syncWithGoogleSheet();
   });
 
   // API: Add Teacher Leave Submission
-  app.post("/api/submissions/izin", (req, res) => {
+  app.post("/api/submissions/izin", async (req, res) => {
     const record = req.body;
     if (!record.namaGuru || !record.mataPelajaran || !record.keteranganKehadiran || !record.keteranganIzinGuru) {
       return res.status(400).json({ success: false, error: "Data input izin guru tidak lengkap" });
@@ -586,13 +602,13 @@ syncWithGoogleSheet();
 
     data.push(newRecord);
     saveSubmissionsIzin(data);
-    asyncPushToSheets("add", "izin", newRecord);
+    await asyncPushToSheets("add", "izin", newRecord);
 
     res.status(201).json({ success: true, data: newRecord });
   });
 
   // API: Delete Teacher Leave Submission
-  app.delete("/api/submissions/izin/:id", (req, res) => {
+  app.delete("/api/submissions/izin/:id", async (req, res) => {
     const { id } = req.params;
     let data = loadSubmissionsIzin();
     const initialLen = data.length;
@@ -601,12 +617,12 @@ syncWithGoogleSheet();
       return res.status(404).json({ success: false, error: "Data tidak ditemukan" });
     }
     saveSubmissionsIzin(data);
-    asyncPushToSheets("delete", "izin", { id });
+    await asyncPushToSheets("delete", "izin", { id });
     res.json({ success: true });
   });
 
   // API: Update Teacher Leave Submission
-  app.put("/api/submissions/izin/:id", (req, res) => {
+  app.put("/api/submissions/izin/:id", async (req, res) => {
     const { id } = req.params;
     const record = req.body;
     const data = loadSubmissionsIzin();
@@ -625,7 +641,7 @@ syncWithGoogleSheet();
       tanggal: record.tanggal || data[index].tanggal
     };
     saveSubmissionsIzin(data);
-    asyncPushToSheets("edit", "izin", data[index]);
+    await asyncPushToSheets("edit", "izin", data[index]);
     res.json({ success: true, data: data[index] });
   });
 
