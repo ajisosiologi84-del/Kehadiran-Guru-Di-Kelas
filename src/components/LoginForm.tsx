@@ -37,14 +37,23 @@ export default function LoginForm({ onLoginSuccess, isLoading }: LoginFormProps)
         }),
       });
 
-      const result = await response.json();
-      if (response.ok && result.success) {
-        onLoginSuccess(result.session);
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        const result = await response.json();
+        if (response.ok && result.success) {
+          onLoginSuccess(result.session);
+        } else {
+          setError(result.error || "Login gagal. Periksa kembali username dan password.");
+        }
       } else {
-        setError(result.error || "Login gagal. Periksa kembali username dan password.");
+        // Handle non-JSON responses like HTML error pages from Vercel
+        const errorText = await response.text();
+        console.error("Non-JSON response received:", errorText);
+        setError(`Kesalahan Server (${response.status}): Gagal memproses permintaan login.`);
       }
-    } catch (err) {
-      setError("Gagal terhubung ke server. Silakan coba beberapa saat lagi.");
+    } catch (err: any) {
+      console.error("Connection error during login:", err);
+      setError("Gagal terhubung ke server. Pastikan koneksi internet aktif dan coba lagi.");
     } finally {
       setIsSubmitting(false);
     }

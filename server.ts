@@ -9,7 +9,16 @@ import fs from "fs";
 import { initializeApp } from "firebase/app";
 import { initializeFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs } from "firebase/firestore";
 
-import firebaseConfigImport from "./firebase-applet-config.json" assert { type: "json" };
+// Read firebase-applet-config.json safely using fs to prevent ESM JSON runtime import errors in Node.js / Vercel
+let firebaseConfigImport: any = null;
+try {
+  const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+  if (fs.existsSync(configPath)) {
+    firebaseConfigImport = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+  }
+} catch (err: any) {
+  console.error("Failed to read firebase-applet-config.json:", err.message);
+}
 
 const fallbackSettings = { appsScriptUrl: "" };
 const fallbackSubmissionsKelas: any[] = [];
