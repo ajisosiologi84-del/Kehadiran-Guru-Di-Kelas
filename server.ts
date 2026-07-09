@@ -7,10 +7,34 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
+import { initializeApp, getApps } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
 
 const fallbackSettings = JSON.parse(fs.readFileSync(path.join(process.cwd(), "src", "data", "settings.json"), "utf8"));
 const fallbackSubmissionsKelas = JSON.parse(fs.readFileSync(path.join(process.cwd(), "src", "data", "submissions_kelas.json"), "utf8"));
 const fallbackSubmissionsIzin = JSON.parse(fs.readFileSync(path.join(process.cwd(), "src", "data", "submissions_izin.json"), "utf8"));
+
+// Firebase configuration loader and DB initialization
+let db: any = null;
+let firebaseActive = false;
+
+try {
+  const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+  if (fs.existsSync(configPath)) {
+    const firebaseConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    const app = getApps().length === 0 ? initializeApp({
+      projectId: firebaseConfig.projectId
+    }) : getApps()[0];
+    
+    db = getFirestore(app, firebaseConfig.firestoreDatabaseId || "(default)");
+    firebaseActive = true;
+    console.log("Firebase Admin Firestore initialized successfully with databaseId:", firebaseConfig.firestoreDatabaseId || "(default)");
+  } else {
+    console.log("firebase-applet-config.json not found, running without Firebase persistence.");
+  }
+} catch (err: any) {
+  console.error("Failed to initialize Firebase:", err.message);
+}
 
 // Fallback backup schedule data if Google Sheet is unreachable
 const FALLBACK_NAMA_GURU = [
@@ -243,7 +267,19 @@ function extractAppsScriptError(html: string): string {
   return "Google Apps Script Error (Otorisasi diperlukan atau script bermasalah)";
 }
 
-function loadSettings(): { appsScriptUrl: string } {
+async function loadSettings(): Promise<{ appsScriptUrl: string }> {
+  if (firebaseActive && db) {
+    try {
+      const docRef = db.collection("settings").doc("config");
+      const docSnap = await docRef.get();
+      if (docSnap.exists) {
+        return docSnap.data() as { appsScriptUrl: string };
+      }
+    } catch (err: any) {
+      console.error("Failed to load settings from Firestore:", err.message);
+    }
+  }
+
   try {
     ensureDataDirectory();
     const data = fs.readFileSync(SETTINGS_FILE, "utf-8");
@@ -254,17 +290,57 @@ function loadSettings(): { appsScriptUrl: string } {
   }
 }
 
-function saveSettings(settings: { appsScriptUrl: string }) {
+async function saveSettings(settings: { appsScriptUrl: string }) {
   try {
     ensureDataDirectory();
     fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
   } catch (e) {
     console.error("Error writing settings:", e);
   }
+
+  if (firebaseActive && db) {
+    try {
+      const docRef = db.collection("settings").doc("config");
+      await docRef.set(settings);
+      console.log("Settings synced to Firestore successfully.");
+    } catch (err: any) {
+      console.error("Failed to sync settings to Firestore:", err.message);
+    }
+  }
+}
+
+async function loadCachedScheduleFromFirestore() {
+  if (firebaseActive && db) {
+    try {
+      const docRef = db.collection("settings").doc("cached_schedule");
+      const docSnap = await docRef.get();
+      if (docSnap.exists) {
+        const data = docSnap.data();
+        if (data && data.namaGuruList && data.namaGuruList.length > 0) {
+          cachedScheduleData = data as any;
+          console.log("Loaded cached schedule data from Firestore successfully. Last sync:", cachedScheduleData.lastSync);
+        }
+      }
+    } catch (err: any) {
+      console.error("Failed to load cached schedule from Firestore:", err.message);
+    }
+  }
+}
+
+async function saveCachedScheduleToFirestore() {
+  if (firebaseActive && db) {
+    try {
+      const docRef = db.collection("settings").doc("cached_schedule");
+      await docRef.set(cachedScheduleData);
+      console.log("Cached schedule data saved to Firestore successfully.");
+    } catch (err: any) {
+      console.error("Failed to save cached schedule to Firestore:", err.message);
+    }
+  }
 }
 
 async function asyncPushToSheets(action: "add" | "edit" | "delete", type: "kelas" | "izin", payload: any) {
-  const settings = loadSettings();
+  const settings = await loadSettings();
   if (!settings.appsScriptUrl) {
     console.log("Apps Script URL not configured, skipping sheet sync.");
     return;
@@ -298,7 +374,21 @@ async function asyncPushToSheets(action: "add" | "edit" | "delete", type: "kelas
   }
 }
 
-function loadSubmissionsKelas(): any[] {
+async function loadSubmissionsKelas(): Promise<any[]> {
+  if (firebaseActive && db) {
+    try {
+      const colRef = db.collection("submissions_kelas");
+      const querySnapshot = await colRef.get();
+      const list: any[] = [];
+      querySnapshot.forEach((doc: any) => {
+        list.push(doc.data());
+      });
+      return list.sort((a, b) => new Date(a.submittedAt || 0).getTime() - new Date(b.submittedAt || 0).getTime());
+    } catch (err: any) {
+      console.error("Failed to load submissions kelas from Firestore:", err.message);
+    }
+  }
+
   try {
     ensureDataDirectory();
     const data = fs.readFileSync(KELAS_SUBMISSIONS_FILE, "utf-8");
@@ -309,16 +399,50 @@ function loadSubmissionsKelas(): any[] {
   }
 }
 
-function saveSubmissionsKelas(data: any[]) {
+async function saveSubmissionsKelas(data: any[]) {
   try {
     ensureDataDirectory();
     fs.writeFileSync(KELAS_SUBMISSIONS_FILE, JSON.stringify(data, null, 2));
   } catch (e) {
     console.error("Error writing submissions kelas:", e);
   }
+
+  if (firebaseActive && db) {
+    try {
+      for (const item of data) {
+        const docRef = db.collection("submissions_kelas").doc(item.id);
+        await docRef.set(item);
+      }
+      const colRef = db.collection("submissions_kelas");
+      const querySnapshot = await colRef.get();
+      const currentIds = new Set(data.map(item => item.id));
+      for (const docSnap of querySnapshot.docs) {
+        if (!currentIds.has(docSnap.id)) {
+          await docSnap.ref.delete();
+          console.log(`Deleted stale submission_kelas from Firestore: ${docSnap.id}`);
+        }
+      }
+    } catch (err: any) {
+      console.error("Failed to sync submissions kelas to Firestore:", err.message);
+    }
+  }
 }
 
-function loadSubmissionsIzin(): any[] {
+async function loadSubmissionsIzin(): Promise<any[]> {
+  if (firebaseActive && db) {
+    try {
+      const colRef = db.collection("submissions_izin");
+      const querySnapshot = await colRef.get();
+      const list: any[] = [];
+      querySnapshot.forEach((doc: any) => {
+        list.push(doc.data());
+      });
+      return list.sort((a, b) => new Date(a.submittedAt || 0).getTime() - new Date(b.submittedAt || 0).getTime());
+    } catch (err: any) {
+      console.error("Failed to load submissions izin from Firestore:", err.message);
+    }
+  }
+
   try {
     ensureDataDirectory();
     const data = fs.readFileSync(IZIN_SUBMISSIONS_FILE, "utf-8");
@@ -329,12 +453,32 @@ function loadSubmissionsIzin(): any[] {
   }
 }
 
-function saveSubmissionsIzin(data: any[]) {
+async function saveSubmissionsIzin(data: any[]) {
   try {
     ensureDataDirectory();
     fs.writeFileSync(IZIN_SUBMISSIONS_FILE, JSON.stringify(data, null, 2));
   } catch (e) {
     console.error("Error writing submissions izin:", e);
+  }
+
+  if (firebaseActive && db) {
+    try {
+      for (const item of data) {
+        const docRef = db.collection("submissions_izin").doc(item.id);
+        await docRef.set(item);
+      }
+      const colRef = db.collection("submissions_izin");
+      const querySnapshot = await colRef.get();
+      const currentIds = new Set(data.map(item => item.id));
+      for (const docSnap of querySnapshot.docs) {
+        if (!currentIds.has(docSnap.id)) {
+          await docSnap.ref.delete();
+          console.log(`Deleted stale submission_izin from Firestore: ${docSnap.id}`);
+        }
+      }
+    } catch (err: any) {
+      console.error("Failed to sync submissions izin to Firestore:", err.message);
+    }
   }
 }
 
@@ -343,15 +487,24 @@ const PORT = 3000;
 
 app.use(express.json());
 
-// Initialize data files
-ensureDataDirectory();
+// Initialize data files & load firebase cache on server startup
+async function initApp() {
+  ensureDataDirectory();
+  await loadCachedScheduleFromFirestore();
+  // Sync with Google Sheet in background
+  syncWithGoogleSheet().then(async () => {
+    await saveCachedScheduleToFirestore();
+  }).catch(err => {
+    console.error("Background sync with Google Sheet failed:", err.message);
+  });
+}
 
-// Sync with Google Sheet
-syncWithGoogleSheet();
+initApp();
 
   // API: Sync Google Sheets manually (can be triggered by main admin)
   app.post("/api/sync", async (req, res) => {
     await syncWithGoogleSheet();
+    await saveCachedScheduleToFirestore();
     res.json({ success: true, lastSync: cachedScheduleData.lastSync });
   });
 
@@ -361,21 +514,21 @@ syncWithGoogleSheet();
   });
 
   // API: Get App Settings
-  app.get("/api/settings", (req, res) => {
-    const settings = loadSettings();
+  app.get("/api/settings", async (req, res) => {
+    const settings = await loadSettings();
     res.json(settings);
   });
 
   // API: Update App Settings
-  app.post("/api/settings", (req, res) => {
+  app.post("/api/settings", async (req, res) => {
     const { appsScriptUrl } = req.body;
-    saveSettings({ appsScriptUrl: appsScriptUrl || "" });
+    await saveSettings({ appsScriptUrl: appsScriptUrl || "" });
     res.json({ success: true });
   });
 
   // API: Sync All local data to Google Sheets
   app.post("/api/sync/sheets", async (req, res) => {
-    const settings = loadSettings();
+    const settings = await loadSettings();
     if (!settings.appsScriptUrl) {
       return res.status(400).json({ success: false, error: "URL Google Apps Script belum dikonfigurasi!" });
     }
@@ -389,8 +542,8 @@ syncWithGoogleSheet();
     }
 
     try {
-      const kelasData = loadSubmissionsKelas();
-      const izinData = loadSubmissionsIzin();
+      const kelasData = await loadSubmissionsKelas();
+      const izinData = await loadSubmissionsIzin();
 
       console.log("Syncing all data to Google Sheets via Apps Script...");
       const response = await fetch(trimmedUrl, {
@@ -501,8 +654,8 @@ syncWithGoogleSheet();
   });
 
   // API: Get Student Class Submissions
-  app.get("/api/submissions/kelas", (req, res) => {
-    const data = loadSubmissionsKelas();
+  app.get("/api/submissions/kelas", async (req, res) => {
+    const data = await loadSubmissionsKelas();
     res.json(data);
   });
 
@@ -513,7 +666,7 @@ syncWithGoogleSheet();
       return res.status(400).json({ success: false, error: "Data input kelas tidak lengkap" });
     }
 
-    const data = loadSubmissionsKelas();
+    const data = await loadSubmissionsKelas();
     const newRecord = {
       id: Math.random().toString(36).substring(2, 9),
       hari: record.hari || "Senin",
@@ -527,7 +680,7 @@ syncWithGoogleSheet();
     };
 
     data.push(newRecord);
-    saveSubmissionsKelas(data);
+    await saveSubmissionsKelas(data);
     await asyncPushToSheets("add", "kelas", newRecord);
 
     res.status(201).json({ success: true, data: newRecord });
@@ -536,13 +689,13 @@ syncWithGoogleSheet();
   // API: Delete Student Class Submission
   app.delete("/api/submissions/kelas/:id", async (req, res) => {
     const { id } = req.params;
-    let data = loadSubmissionsKelas();
+    let data = await loadSubmissionsKelas();
     const initialLen = data.length;
     data = data.filter(item => item.id !== id);
     if (data.length === initialLen) {
       return res.status(404).json({ success: false, error: "Data tidak ditemukan" });
     }
-    saveSubmissionsKelas(data);
+    await saveSubmissionsKelas(data);
     await asyncPushToSheets("delete", "kelas", { id });
     res.json({ success: true });
   });
@@ -551,7 +704,7 @@ syncWithGoogleSheet();
   app.put("/api/submissions/kelas/:id", async (req, res) => {
     const { id } = req.params;
     const record = req.body;
-    const data = loadSubmissionsKelas();
+    const data = await loadSubmissionsKelas();
     const index = data.findIndex(item => item.id === id);
     if (index === -1) {
       return res.status(404).json({ success: false, error: "Data tidak ditemukan" });
@@ -565,14 +718,14 @@ syncWithGoogleSheet();
       hari: record.hari || data[index].hari,
       tanggal: record.tanggal || data[index].tanggal
     };
-    saveSubmissionsKelas(data);
+    await saveSubmissionsKelas(data);
     await asyncPushToSheets("edit", "kelas", data[index]);
     res.json({ success: true, data: data[index] });
   });
 
   // API: Get Teacher Leave Submissions
-  app.get("/api/submissions/izin", (req, res) => {
-    const data = loadSubmissionsIzin();
+  app.get("/api/submissions/izin", async (req, res) => {
+    const data = await loadSubmissionsIzin();
     res.json(data);
   });
 
@@ -583,7 +736,7 @@ syncWithGoogleSheet();
       return res.status(400).json({ success: false, error: "Data input izin guru tidak lengkap" });
     }
 
-    const data = loadSubmissionsIzin();
+    const data = await loadSubmissionsIzin();
     const newRecord = {
       id: Math.random().toString(36).substring(2, 9),
       hari: record.hari || "Senin",
@@ -597,7 +750,7 @@ syncWithGoogleSheet();
     };
 
     data.push(newRecord);
-    saveSubmissionsIzin(data);
+    await saveSubmissionsIzin(data);
     await asyncPushToSheets("add", "izin", newRecord);
 
     res.status(201).json({ success: true, data: newRecord });
@@ -606,13 +759,13 @@ syncWithGoogleSheet();
   // API: Delete Teacher Leave Submission
   app.delete("/api/submissions/izin/:id", async (req, res) => {
     const { id } = req.params;
-    let data = loadSubmissionsIzin();
+    let data = await loadSubmissionsIzin();
     const initialLen = data.length;
     data = data.filter(item => item.id !== id);
     if (data.length === initialLen) {
       return res.status(404).json({ success: false, error: "Data tidak ditemukan" });
     }
-    saveSubmissionsIzin(data);
+    await saveSubmissionsIzin(data);
     await asyncPushToSheets("delete", "izin", { id });
     res.json({ success: true });
   });
@@ -621,7 +774,7 @@ syncWithGoogleSheet();
   app.put("/api/submissions/izin/:id", async (req, res) => {
     const { id } = req.params;
     const record = req.body;
-    const data = loadSubmissionsIzin();
+    const data = await loadSubmissionsIzin();
     const index = data.findIndex(item => item.id === id);
     if (index === -1) {
       return res.status(404).json({ success: false, error: "Data tidak ditemukan" });
@@ -636,7 +789,7 @@ syncWithGoogleSheet();
       hari: record.hari || data[index].hari,
       tanggal: record.tanggal || data[index].tanggal
     };
-    saveSubmissionsIzin(data);
+    await saveSubmissionsIzin(data);
     await asyncPushToSheets("edit", "izin", data[index]);
     res.json({ success: true, data: data[index] });
   });
