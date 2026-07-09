@@ -8,9 +8,9 @@ import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
 
-import fallbackSettings from "./src/data/settings.json";
-import fallbackSubmissionsKelas from "./src/data/submissions_kelas.json";
-import fallbackSubmissionsIzin from "./src/data/submissions_izin.json";
+const fallbackSettings = JSON.parse(fs.readFileSync(path.join(process.cwd(), "src", "data", "settings.json"), "utf8"));
+const fallbackSubmissionsKelas = JSON.parse(fs.readFileSync(path.join(process.cwd(), "src", "data", "submissions_kelas.json"), "utf8"));
+const fallbackSubmissionsIzin = JSON.parse(fs.readFileSync(path.join(process.cwd(), "src", "data", "submissions_izin.json"), "utf8"));
 
 // Fallback backup schedule data if Google Sheet is unreachable
 const FALLBACK_NAMA_GURU = [
