@@ -10,9 +10,9 @@ import { createServer as createViteServer } from "vite";
 import { initializeApp } from "firebase/app";
 import { initializeFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs } from "firebase/firestore";
 
-const fallbackSettings = JSON.parse(fs.readFileSync(path.join(process.cwd(), "src", "data", "settings.json"), "utf8"));
-const fallbackSubmissionsKelas = JSON.parse(fs.readFileSync(path.join(process.cwd(), "src", "data", "submissions_kelas.json"), "utf8"));
-const fallbackSubmissionsIzin = JSON.parse(fs.readFileSync(path.join(process.cwd(), "src", "data", "submissions_izin.json"), "utf8"));
+const fallbackSettings = { appsScriptUrl: "" };
+const fallbackSubmissionsKelas: any[] = [];
+const fallbackSubmissionsIzin: any[] = [];
 
 // Firebase configuration loader and DB initialization
 let firebaseApp: any = null;
@@ -135,7 +135,49 @@ let cachedScheduleData = {
 // Function to fetch and parse spreadsheet data
 async function syncWithGoogleSheet() {
   try {
-    console.log("Fetching live data from Google Sheet...");
+    console.log("Checking if Google Apps Script URL is configured for schedule sync...");
+    const settings = await loadSettings();
+    if (settings.appsScriptUrl) {
+      const trimmedUrl = settings.appsScriptUrl.trim();
+      if (trimmedUrl && !trimmedUrl.includes("docs.google.com/spreadsheets")) {
+        console.log("Syncing schedule and class admins via Apps Script Web App...");
+        try {
+          const response = await fetch(trimmedUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "get_schedule" })
+          });
+          
+          if (response.ok) {
+            const text = await response.text();
+            if (!text.trim().startsWith("<!DOCTYPE") && !text.trim().startsWith("<html")) {
+              const result = JSON.parse(text);
+              if (result.success && result.namaGuruList && result.namaGuruList.length > 0) {
+                cachedScheduleData = {
+                  namaGuruList: result.namaGuruList,
+                  mataPelajaranList: result.mataPelajaranList && result.mataPelajaranList.length > 0 ? result.mataPelajaranList : FALLBACK_MATA_PELAJARAN,
+                  jamKeList: result.jamKeList && result.jamKeList.length > 0 ? result.jamKeList : FALLBACK_JAM_KE,
+                  classAdmins: result.classAdmins && Object.keys(result.classAdmins).length > 0 ? result.classAdmins : FALLBACK_CLASS_ADMINS,
+                  lastSync: new Date().toISOString()
+                };
+                console.log("Successfully synced schedule and class admins via Apps Script Web App!");
+                return;
+              } else {
+                console.warn("Apps Script schedule sync returned unsuccessful or empty data:", result.error || "unknown error");
+              }
+            } else {
+              console.warn("Apps Script schedule sync returned HTML. Falling back to public spreadsheet CSV.");
+            }
+          } else {
+            console.warn("Apps Script schedule sync request failed with status:", response.status);
+          }
+        } catch (scriptErr: any) {
+          console.error("Failed to fetch from Apps Script Web App, falling back to public spreadsheet:", scriptErr.message);
+        }
+      }
+    }
+
+    console.log("Fetching live data from Google Sheet CSV directly...");
     const response = await fetch(SHEETS_URL);
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
@@ -191,7 +233,7 @@ async function syncWithGoogleSheet() {
         classAdmins: Object.keys(classAdminsMap).length > 0 ? classAdminsMap : FALLBACK_CLASS_ADMINS,
         lastSync: new Date().toISOString()
       };
-      console.log("Successfully synced Google Sheet data!");
+      console.log("Successfully synced Google Sheet data via CSV fallback!");
       console.log(`Teachers loaded: ${cachedScheduleData.namaGuruList.length}`);
       console.log(`Class Admins loaded: ${Object.keys(cachedScheduleData.classAdmins).length}`);
     } else {
@@ -508,7 +550,26 @@ initApp();
 
   // API: Get reference schedule data
   app.get("/api/schedule", (req, res) => {
+    // Return cached schedule immediately (lightning fast!)
     res.json(cachedScheduleData);
+
+    // If still fallback, trigger loading/syncing in the background so it updates for future requests
+    if (cachedScheduleData.lastSync === "Never (Using Fallback)") {
+      // Run in background without blocking the response
+      (async () => {
+        try {
+          console.log("Loading schedule from Firestore in background...");
+          await loadCachedScheduleFromFirestore();
+          if (cachedScheduleData.lastSync === "Never (Using Fallback)") {
+            console.log("No schedule in cache, syncing live from Sheets in background...");
+            await syncWithGoogleSheet();
+            await saveCachedScheduleToFirestore();
+          }
+        } catch (err: any) {
+          console.error("Background initial sync failed:", err.message);
+        }
+      })();
+    }
   });
 
   // API: Get App Settings

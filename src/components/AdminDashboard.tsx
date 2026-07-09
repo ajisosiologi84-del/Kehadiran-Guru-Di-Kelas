@@ -1223,6 +1223,58 @@ const APPS_SCRIPT_CODE = `function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
     
+    if (action === 'get_schedule') {
+      var sheetUtama = doc.getSheetByName("DATA_UTAMA");
+      if (!sheetUtama) {
+        return ContentService.createTextOutput(JSON.stringify({ 
+          success: false, 
+          error: "Sheet DATA_UTAMA tidak ditemukan!" 
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+      var values = sheetUtama.getDataRange().getValues();
+      var namaGuruList = [];
+      var mataPelajaranList = [];
+      var jamKeList = [];
+      var classAdmins = {};
+      
+      for (var r = 1; r < values.length; r++) {
+        var row = values[r];
+        if (row[2]) {
+          var val = row[2].toString().trim();
+          if (val && namaGuruList.indexOf(val) === -1) {
+            namaGuruList.push(val);
+          }
+        }
+        if (row[3]) {
+          var val = row[3].toString().trim();
+          if (val && mataPelajaranList.indexOf(val) === -1) {
+            mataPelajaranList.push(val);
+          }
+        }
+        if (row[4]) {
+          var val = row[4].toString().trim();
+          if (val && jamKeList.indexOf(val) === -1) {
+            jamKeList.push(val);
+          }
+        }
+        if (row[6]) {
+          var username = row[6].toString().trim().toLowerCase();
+          var password = row[7] ? row[7].toString().trim() : "adminkelas2026";
+          if (username) {
+            classAdmins[username] = password;
+          }
+        }
+      }
+      
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        namaGuruList: namaGuruList,
+        mataPelajaranList: mataPelajaranList,
+        jamKeList: jamKeList,
+        classAdmins: classAdmins
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    
     if (action === 'sync_all') {
       var kelasData = requestData.kelasData || [];
       var izinData = requestData.izinData || [];
@@ -1315,6 +1367,71 @@ const APPS_SCRIPT_CODE = `function doPost(e) {
 }
 
 function doGet(e) {
+  var action = e && e.parameter ? e.parameter.action : null;
+  if (action === 'get_schedule') {
+    var lock = LockService.getScriptLock();
+    lock.tryLock(10000);
+    try {
+      var doc = null;
+      try {
+        doc = SpreadsheetApp.getActiveSpreadsheet();
+      } catch (err) {}
+      
+      if (!doc) {
+        var SPREADSHEET_ID = ""; // Masukkan ID manual jika standalone
+        if (SPREADSHEET_ID && SPREADSHEET_ID !== "") {
+          doc = SpreadsheetApp.openById(SPREADSHEET_ID);
+        }
+      }
+      
+      if (!doc) {
+        return ContentService.createTextOutput(JSON.stringify({ success: false, error: "Spreadsheet tidak ditemukan!" })).setMimeType(ContentService.MimeType.JSON);
+      }
+      
+      var sheetUtama = doc.getSheetByName("DATA_UTAMA");
+      if (!sheetUtama) {
+        return ContentService.createTextOutput(JSON.stringify({ success: false, error: "Sheet DATA_UTAMA tidak ditemukan!" })).setMimeType(ContentService.MimeType.JSON);
+      }
+      var values = sheetUtama.getDataRange().getValues();
+      var namaGuruList = [];
+      var mataPelajaranList = [];
+      var jamKeList = [];
+      var classAdmins = {};
+      
+      for (var r = 1; r < values.length; r++) {
+        var row = values[r];
+        if (row[2]) {
+          var val = row[2].toString().trim();
+          if (val && namaGuruList.indexOf(val) === -1) { namaGuruList.push(val); }
+        }
+        if (row[3]) {
+          var val = row[3].toString().trim();
+          if (val && mataPelajaranList.indexOf(val) === -1) { mataPelajaranList.push(val); }
+        }
+        if (row[4]) {
+          var val = row[4].toString().trim();
+          if (val && jamKeList.indexOf(val) === -1) { jamKeList.push(val); }
+        }
+        if (row[6]) {
+          var username = row[6].toString().trim().toLowerCase();
+          var password = row[7] ? row[7].toString().trim() : "adminkelas2026";
+          if (username) { classAdmins[username] = password; }
+        }
+      }
+      
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        namaGuruList: namaGuruList,
+        mataPelajaranList: mataPelajaranList,
+        jamKeList: jamKeList,
+        classAdmins: classAdmins
+      })).setMimeType(ContentService.MimeType.JSON);
+    } catch (error) {
+      return ContentService.createTextOutput(JSON.stringify({ success: false, error: error.toString() })).setMimeType(ContentService.MimeType.JSON);
+    } finally {
+      lock.releaseLock();
+    }
+  }
   return ContentService.createTextOutput("Google Apps Script Web App untuk Presensi Sekolah Aktif!")
     .setMimeType(ContentService.MimeType.TEXT);
 }`;
