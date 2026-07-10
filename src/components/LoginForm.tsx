@@ -6,15 +6,16 @@
 import { useState, FormEvent } from "react";
 import { UserSession, AdminRole } from "../types";
 import { FirebaseService } from "../firebase";
-import { KeyRound, Users, GraduationCap, ShieldAlert } from "lucide-react";
+import { KeyRound, Users, GraduationCap, ShieldAlert, BookOpen } from "lucide-react";
 
 interface LoginFormProps {
   onLoginSuccess: (session: UserSession) => void;
   isLoading: boolean;
+  defaultType?: "STUDENT" | "ADMIN" | "TEACHER";
 }
 
-export default function LoginForm({ onLoginSuccess, isLoading }: LoginFormProps) {
-  const [loginType, setLoginType] = useState<"STUDENT" | "ADMIN">("STUDENT");
+export default function LoginForm({ onLoginSuccess, isLoading, defaultType = "STUDENT" }: LoginFormProps) {
+  const [loginType, setLoginType] = useState<"STUDENT" | "ADMIN" | "TEACHER">(defaultType);
   const [adminRole, setAdminRole] = useState<AdminRole>("UTAMA");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -45,7 +46,7 @@ export default function LoginForm({ onLoginSuccess, isLoading }: LoginFormProps)
   return (
     <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden" id="login-container">
       {/* Tab Selector */}
-      <div className="flex border-b border-slate-100">
+      <div className="flex border-b border-slate-100 overflow-x-auto">
         <button
           type="button"
           id="tab-siswa"
@@ -55,14 +56,32 @@ export default function LoginForm({ onLoginSuccess, isLoading }: LoginFormProps)
             setPassword("");
             setError(null);
           }}
-          className={`flex-1 py-4 text-center font-medium text-sm flex items-center justify-center gap-2 transition-all duration-200 ${
+          className={`flex-1 py-4 text-center font-bold text-xs flex items-center justify-center gap-1.5 transition-all duration-200 min-w-[110px] shrink-0 ${
             loginType === "STUDENT"
               ? "text-blue-600 border-b-2 border-blue-600 bg-blue-50/20"
               : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
           }`}
         >
           <GraduationCap className="w-4 h-4" />
-          Admin Kelas (Siswa)
+          Admin Kelas
+        </button>
+        <button
+          type="button"
+          id="tab-guru"
+          onClick={() => {
+            setLoginType("TEACHER");
+            setUsername("guru");
+            setPassword("");
+            setError(null);
+          }}
+          className={`flex-1 py-4 text-center font-bold text-xs flex items-center justify-center gap-1.5 transition-all duration-200 min-w-[110px] shrink-0 ${
+            loginType === "TEACHER"
+              ? "text-amber-600 border-b-2 border-amber-600 bg-amber-50/20"
+              : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
+          }`}
+        >
+          <BookOpen className="w-4 h-4" />
+          Admin Guru
         </button>
         <button
           type="button"
@@ -73,7 +92,7 @@ export default function LoginForm({ onLoginSuccess, isLoading }: LoginFormProps)
             setPassword("");
             setError(null);
           }}
-          className={`flex-1 py-4 text-center font-medium text-sm flex items-center justify-center gap-2 transition-all duration-200 ${
+          className={`flex-1 py-4 text-center font-bold text-xs flex items-center justify-center gap-1.5 transition-all duration-200 min-w-[110px] shrink-0 ${
             loginType === "ADMIN"
               ? "text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/20"
               : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
@@ -87,11 +106,17 @@ export default function LoginForm({ onLoginSuccess, isLoading }: LoginFormProps)
       <div className="p-8">
         <div className="text-center mb-6">
           <h2 className="text-2xl font-bold text-slate-800">
-            {loginType === "STUDENT" ? "Masuk Admin Kelas" : "Masuk Administrator"}
+            {loginType === "STUDENT" 
+              ? "Masuk Admin Kelas" 
+              : loginType === "TEACHER" 
+              ? "Masuk Admin Guru" 
+              : "Masuk Administrator"}
           </h2>
           <p className="text-slate-500 text-sm mt-1">
             {loginType === "STUDENT"
               ? "Silakan login menggunakan akun admin kelas Anda untuk melaporkan kehadiran guru."
+              : loginType === "TEACHER"
+              ? "Silakan login menggunakan akun Admin Guru Anda untuk melaporkan izin mengajar guru."
               : "Silakan pilih hak akses dan masukkan password admin Anda."}
           </p>
         </div>
@@ -104,7 +129,23 @@ export default function LoginForm({ onLoginSuccess, isLoading }: LoginFormProps)
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4" id="login-form">
-          {loginType === "ADMIN" ? (
+          {loginType === "TEACHER" ? (
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-slate-600 block">Username Admin Guru</label>
+              <div className="relative">
+                <Users className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  id="input-username"
+                  required
+                  placeholder="Contoh: guru"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-800 text-sm placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all"
+                />
+              </div>
+            </div>
+          ) : loginType === "ADMIN" ? (
             <div className="space-y-2">
               <label className="text-xs font-semibold text-slate-600 block">Pilih Peran Admin</label>
               <select
@@ -126,7 +167,7 @@ export default function LoginForm({ onLoginSuccess, isLoading }: LoginFormProps)
                 <Users className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
                   type="text"
-                  id="input-username"
+                  id="input-username-student"
                   required
                   placeholder="Contoh: adminkelasx1"
                   value={username}
@@ -161,6 +202,8 @@ export default function LoginForm({ onLoginSuccess, isLoading }: LoginFormProps)
             className={`w-full py-3 rounded-lg text-white font-semibold text-sm transition-all duration-200 flex items-center justify-center gap-2 ${
               loginType === "STUDENT"
                 ? "bg-blue-600 hover:bg-blue-700 active:scale-[0.98] shadow-md shadow-blue-500/10"
+                : loginType === "TEACHER"
+                ? "bg-amber-600 hover:bg-amber-700 active:scale-[0.98] shadow-md shadow-amber-500/10"
                 : "bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] shadow-md shadow-indigo-500/10"
             } disabled:opacity-50 disabled:pointer-events-none`}
           >

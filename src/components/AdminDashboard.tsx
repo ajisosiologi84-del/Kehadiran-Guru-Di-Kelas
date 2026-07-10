@@ -6,6 +6,7 @@
 import { useState, useEffect } from "react";
 import { StudentSubmission, TeacherLeaveSubmission, AdminRole, ScheduleData } from "../types";
 import { FirebaseService } from "../firebase";
+import LaporanPanel from "./LaporanPanel";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell
@@ -26,11 +27,67 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
   const [submissionsKelas, setSubmissionsKelas] = useState<StudentSubmission[]>([]);
   const [submissionsIzin, setSubmissionsIzin] = useState<TeacherLeaveSubmission[]>([]);
   
+  // Dashboard theme selection state
+  const [currentTheme, setCurrentTheme] = useState<"INDIGO" | "EMERALD" | "TEAL" | "CHARCOAL">("EMERALD");
+
+  const themeConfig = {
+    INDIGO: {
+      accentText: "text-indigo-600",
+      accentBg: "bg-indigo-50/80 text-indigo-700 border-indigo-100",
+      buttonPrimary: "bg-indigo-600 hover:bg-indigo-700 focus:ring-indigo-500/20",
+      borderActive: "border-indigo-600 text-indigo-600",
+      lightBadge: "bg-indigo-50 text-indigo-700 border-indigo-100",
+      gradientHeader: "from-indigo-600 to-blue-700",
+      ringColor: "focus:ring-indigo-500",
+      focusBorder: "focus:border-indigo-500 focus:ring-indigo-500/10",
+      barColor: "#6366f1",
+      hoverBorder: "hover:border-indigo-200"
+    },
+    EMERALD: {
+      accentText: "text-emerald-600",
+      accentBg: "bg-emerald-50/80 text-emerald-700 border-emerald-100",
+      buttonPrimary: "bg-emerald-600 hover:bg-emerald-700 focus:ring-emerald-500/20",
+      borderActive: "border-emerald-600 text-emerald-600",
+      lightBadge: "bg-emerald-50 text-emerald-700 border-emerald-100",
+      gradientHeader: "from-emerald-600 to-teal-700",
+      ringColor: "focus:ring-emerald-500",
+      focusBorder: "focus:border-emerald-500 focus:ring-emerald-500/10",
+      barColor: "#10b981",
+      hoverBorder: "hover:border-emerald-200"
+    },
+    TEAL: {
+      accentText: "text-teal-600",
+      accentBg: "bg-teal-50/80 text-teal-700 border-teal-100",
+      buttonPrimary: "bg-teal-600 hover:bg-teal-700 focus:ring-teal-500/20",
+      borderActive: "border-teal-600 text-teal-600",
+      lightBadge: "bg-teal-50 text-teal-700 border-teal-100",
+      gradientHeader: "from-teal-600 to-cyan-700",
+      ringColor: "focus:ring-teal-500",
+      focusBorder: "focus:border-teal-500 focus:ring-teal-500/10",
+      barColor: "#0d9488",
+      hoverBorder: "hover:border-teal-200"
+    },
+    CHARCOAL: {
+      accentText: "text-slate-800",
+      accentBg: "bg-slate-100 text-slate-800 border-slate-200",
+      buttonPrimary: "bg-slate-800 hover:bg-slate-950 focus:ring-slate-500/20",
+      borderActive: "border-slate-800 text-slate-800",
+      lightBadge: "bg-slate-100 text-slate-800 border-slate-200",
+      gradientHeader: "from-slate-700 to-slate-950",
+      ringColor: "focus:ring-slate-800",
+      focusBorder: "focus:border-slate-800 focus:ring-slate-800/10",
+      barColor: "#475569",
+      hoverBorder: "hover:border-slate-300"
+    }
+  };
+
+  const activeTheme = themeConfig[currentTheme];
+  
   // Filters
   const [searchTerm, setSearchTerm] = useState("");
   const [filterHari, setFilterHari] = useState("SEMUA");
   const [filterTanggal, setFilterTanggal] = useState("");
-  const [activeTab, setActiveTab] = useState<"KELAS" | "IZIN" | "SYNC" | "PENGATURAN">("KELAS");
+  const [activeTab, setActiveTab] = useState<"KELAS" | "IZIN" | "LAPORAN" | "SYNC" | "PENGATURAN">("KELAS");
 
   // School Settings
   const [tempLogoUrl, setTempLogoUrl] = useState("");
@@ -40,8 +97,6 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
   // Google Apps Script state
   const [appsScriptUrl, setAppsScriptUrl] = useState("");
   const [isSavingSettings, setIsSavingSettings] = useState(false);
-  const [isSyncingAll, setIsSyncingAll] = useState(false);
-  const [syncMessage, setSyncMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   // Sync state
   const [lastSync, setLastSync] = useState(scheduleData.classAdmins ? "Tersinkronisasi" : "Belum");
@@ -181,20 +236,6 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
     }
   };
 
-  const handleSyncAllToSheets = async () => {
-    setIsSyncingAll(true);
-    setSyncMessage(null);
-    try {
-      await FirebaseService.syncAllToGoogleSheet(submissionsKelas, submissionsIzin);
-      setSyncMessage({ type: "success", text: "Berhasil menyinkronkan seluruh data ke Google Sheet!" });
-      alert("Sukses! Semua data input kelas dan guru berhasil disinkronisasikan ke Google Sheet.");
-    } catch (e: any) {
-      setSyncMessage({ type: "error", text: e.message || "Gagal melakukan sinkronisasi massal." });
-    } finally {
-      setIsSyncingAll(false);
-    }
-  };
-
   const fetchData = async () => {
     try {
       const [dataKelas, dataIzin] = await Promise.all([
@@ -321,7 +362,7 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
 
   // Recharts Data
   const pieData = [
-    { name: "Hadir", value: countHadir, color: "#10b981" },
+    { name: "Hadir", value: countHadir, color: activeTheme.barColor },
     { name: "Izin", value: countIzin + submissionsIzin.filter(s => s.keteranganKehadiran === "IZIN").length, color: "#f59e0b" },
     { name: "Sakit", value: countSakit + submissionsIzin.filter(s => s.keteranganKehadiran === "SAKIT").length, color: "#06b6d4" },
     { name: "Alpa", value: countAlpa, color: "#ef4444" }
@@ -382,11 +423,75 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
         </div>
       </div>
 
+      {/* Rekomendasi Tema Warna Panel */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex flex-col md:flex-row md:items-center justify-between gap-4" id="theme-recommendation-panel">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="text-base">🎨</span>
+            <h3 className="text-xs font-black uppercase text-slate-400 tracking-wider">Rekomendasi Tema Warna Dashboard (Kenyamanan Mata)</h3>
+          </div>
+          <p className="text-[11px] text-slate-500 leading-relaxed">
+            Pilihan palet warna premium yang didesain khusus agar nyaman di mata saat Anda memantau absensi dalam jangka waktu lama.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setCurrentTheme("EMERALD")}
+            className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+              currentTheme === "EMERALD"
+                ? "bg-emerald-50 text-emerald-700 border-emerald-200 shadow-sm scale-[1.02]"
+                : "bg-slate-50 text-slate-600 border-slate-200/60 hover:bg-slate-100"
+            }`}
+          >
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block shrink-0"></span>
+            Emerald Sage (Rekomendasi)
+          </button>
+          <button
+            type="button"
+            onClick={() => setCurrentTheme("TEAL")}
+            className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+              currentTheme === "TEAL"
+                ? "bg-teal-50 text-teal-700 border-teal-200 shadow-sm scale-[1.02]"
+                : "bg-slate-50 text-slate-600 border-slate-200/60 hover:bg-slate-100"
+            }`}
+          >
+            <span className="w-2.5 h-2.5 rounded-full bg-teal-500 inline-block shrink-0"></span>
+            Ocean Teal
+          </button>
+          <button
+            type="button"
+            onClick={() => setCurrentTheme("INDIGO")}
+            className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+              currentTheme === "INDIGO"
+                ? "bg-indigo-50 text-indigo-700 border-indigo-200 shadow-sm scale-[1.02]"
+                : "bg-slate-50 text-slate-600 border-slate-200/60 hover:bg-slate-100"
+            }`}
+          >
+            <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 inline-block shrink-0"></span>
+            Classic Indigo
+          </button>
+          <button
+            type="button"
+            onClick={() => setCurrentTheme("CHARCOAL")}
+            className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+              currentTheme === "CHARCOAL"
+                ? "bg-slate-800 text-white border-slate-700 shadow-sm scale-[1.02]"
+                : "bg-slate-50 text-slate-600 border-slate-200/60 hover:bg-slate-100"
+            }`}
+          >
+            <span className="w-2.5 h-2.5 rounded-full bg-slate-800 inline-block shrink-0"></span>
+            Dark Charcoal
+          </button>
+        </div>
+      </div>
+
       {/* Statistics Bento Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {/* Card 1: Total Kelas Terlapor */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
-          <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
+        <div className={`bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4 transition-all duration-300 ${activeTheme.hoverBorder} hover:shadow-md hover:bg-slate-50/20`}>
+          <div className={`p-3 bg-blue-500/10 text-blue-600 rounded-2xl shadow-inner shrink-0`}>
             <Layers className="w-6 h-6" />
           </div>
           <div>
@@ -397,13 +502,13 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
         </div>
 
         {/* Card 2: Tingkat Kehadiran Guru */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
-          <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl">
+        <div className={`bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4 transition-all duration-300 ${activeTheme.hoverBorder} hover:shadow-md hover:bg-slate-50/20`}>
+          <div className={`p-3 bg-emerald-500/10 text-emerald-600 rounded-2xl shadow-inner shrink-0`}>
             <CheckCircle className="w-6 h-6" />
           </div>
           <div>
             <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Hadir (Persentase)</div>
-            <div className="text-2xl font-black text-slate-800" id="stat-kehadiran-persen">
+            <div className={`text-2xl font-black ${activeTheme.accentText}`} id="stat-kehadiran-persen">
               {totalReportedKelas > 0 ? Math.round((countHadir / totalReportedKelas) * 100) : 0}%
             </div>
             <div className="text-[10px] text-slate-400">{countHadir} dari {totalReportedKelas} jam terlapor</div>
@@ -411,8 +516,8 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
         </div>
 
         {/* Card 3: Total Guru Izin & Sakit */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
-          <div className="p-3 bg-amber-50 text-amber-600 rounded-xl">
+        <div className={`bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4 transition-all duration-300 ${activeTheme.hoverBorder} hover:shadow-md hover:bg-slate-50/20`}>
+          <div className={`p-3 bg-amber-500/10 text-amber-600 rounded-2xl shadow-inner shrink-0`}>
             <AlertTriangle className="w-6 h-6" />
           </div>
           <div>
@@ -425,8 +530,8 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
         </div>
 
         {/* Card 4: Tanpa Keterangan / Alpa */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
-          <div className="p-3 bg-rose-50 text-rose-600 rounded-xl">
+        <div className={`bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4 transition-all duration-300 ${activeTheme.hoverBorder} hover:shadow-md hover:bg-slate-50/20`}>
+          <div className={`p-3 bg-rose-500/10 text-rose-600 rounded-2xl shadow-inner shrink-0`}>
             <UserX className="w-6 h-6" />
           </div>
           <div>
@@ -450,7 +555,7 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
                 <YAxis fontSize={11} stroke="#64748b" />
                 <Tooltip />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="Hadir" fill="#10b981" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="Hadir" fill={activeTheme.barColor} radius={[4, 4, 0, 0]} />
                 <Bar dataKey="Alpa" fill="#ef4444" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -495,10 +600,22 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
             </div>
           )}
           <div className="grid grid-cols-4 gap-2 pt-4 border-t border-slate-50 text-[10px] text-center font-bold text-slate-600">
-            <div className="flex flex-col items-center"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 mb-1"></span>Hadir ({countHadir})</div>
-            <div className="flex flex-col items-center"><span className="w-2.5 h-2.5 rounded-full bg-amber-500 mb-1"></span>Izin ({countIzin})</div>
-            <div className="flex flex-col items-center"><span className="w-2.5 h-2.5 rounded-full bg-cyan-500 mb-1"></span>Sakit ({countSakit})</div>
-            <div className="flex flex-col items-center"><span className="w-2.5 h-2.5 rounded-full bg-rose-500 mb-1"></span>Alpa ({countAlpa})</div>
+            <div className="flex flex-col items-center">
+              <span className="w-2.5 h-2.5 rounded-full mb-1" style={{ backgroundColor: activeTheme.barColor }}></span>
+              Hadir ({countHadir})
+            </div>
+            <div className="flex flex-col items-center">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 mb-1"></span>
+              Izin ({countIzin})
+            </div>
+            <div className="flex flex-col items-center">
+              <span className="w-2.5 h-2.5 rounded-full bg-cyan-500 mb-1"></span>
+              Sakit ({countSakit})
+            </div>
+            <div className="flex flex-col items-center">
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 mb-1"></span>
+              Alpa ({countAlpa})
+            </div>
           </div>
         </div>
       </div>
@@ -518,7 +635,7 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
               placeholder="Cari guru atau mata pelajaran..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all"
+              className={`w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-opacity-10 transition-all ${activeTheme.focusBorder}`}
             />
           </div>
 
@@ -527,7 +644,7 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
             id="filter-hari-select"
             value={filterHari}
             onChange={(e) => setFilterHari(e.target.value)}
-            className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all"
+            className={`w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-opacity-10 transition-all ${activeTheme.focusBorder}`}
           >
             <option value="SEMUA">Semua Hari</option>
             <option value="Senin">Senin</option>
@@ -543,7 +660,7 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
             id="filter-tanggal-input"
             value={filterTanggal}
             onChange={(e) => setFilterTanggal(e.target.value)}
-            className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all"
+            className={`w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-opacity-10 transition-all ${activeTheme.focusBorder}`}
           />
         </div>
       </div>
@@ -573,6 +690,17 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
               }`}
             >
               DATA INPUT IZIN (Guru)
+            </button>
+            <button
+              onClick={() => setActiveTab("LAPORAN")}
+              id="tab-btn-laporan"
+              className={`py-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${
+                activeTab === "LAPORAN"
+                  ? `${activeTheme.accentText} ${activeTheme.borderActive}`
+                  : "text-slate-400 border-transparent hover:text-slate-700"
+              }`}
+            >
+              📋 CETAK & LAPORAN
             </button>
             <button
               onClick={() => setActiveTab("SYNC")}
@@ -621,8 +749,16 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
         </div>
 
         {/* DATA TABLE */}
-        <div className="overflow-x-auto">
-          {activeTab === "PENGATURAN" && role === "UTAMA" ? (
+        {activeTab === "LAPORAN" ? (
+          <LaporanPanel
+            submissionsKelas={submissionsKelas}
+            submissionsIzin={submissionsIzin}
+            activeTheme={activeTheme}
+            currentThemeKey={currentTheme}
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            {activeTab === "PENGATURAN" && role === "UTAMA" ? (
             <div className="p-6 max-w-2xl mx-auto space-y-8" id="panel-pengaturan-utama">
               {/* Card Header */}
               <div className="p-5 rounded-xl border bg-purple-50/50 border-purple-100 flex items-start gap-4">
@@ -759,47 +895,6 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
                       <span className="text-amber-600 font-bold">Belum Terkonfigurasi (Gunakan fallback penyimpanan lokal)</span>
                     )}
                   </span>
-                </div>
-              </div>
-
-              {/* Sync Action Card */}
-              <div className="bg-white border border-slate-150 rounded-xl p-5 md:p-6 space-y-4 shadow-sm">
-                <div>
-                  <h4 className="text-xs font-black uppercase text-slate-400 tracking-wider">Sinkronisasi Massal Semua Data</h4>
-                  <p className="text-[11px] text-slate-500 mt-1">
-                    Kirimkan seluruh data absensi siswa dan pengajuan izin guru di penyimpanan lokal secara massal ke Google Sheet.
-                  </p>
-                </div>
-
-                {syncMessage && (
-                  <div className={`p-3.5 rounded-lg text-xs font-medium border ${
-                    syncMessage.type === "success" 
-                      ? "bg-emerald-50 border-emerald-100 text-emerald-800"
-                      : "bg-red-50 border-red-100 text-red-800"
-                  }`}>
-                    {syncMessage.text}
-                  </div>
-                )}
-
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    onClick={handleSyncAllToSheets}
-                    disabled={isSyncingAll || !appsScriptUrl}
-                    className="flex items-center gap-2 px-5 py-2.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 disabled:bg-slate-100 disabled:text-slate-400 rounded-lg border border-indigo-100/60 transition-all cursor-pointer disabled:cursor-not-allowed"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncingAll ? 'animate-spin' : ''}`} />
-                    {isSyncingAll ? "Sedang Menyinkronkan..." : "Sinkronisasikan Semua Data Ke GSheet Sekarang"}
-                  </button>
-
-                  <a
-                    href="https://docs.google.com/spreadsheets/d/1I-L5m4C7jOK-3y2hKnzhQEb9GDFzqot7YylhvooC7AM/edit?usp=sharing"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 px-5 py-2.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition-all cursor-pointer shadow-sm"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    Buka Google Sheet
-                  </a>
                 </div>
               </div>
 
@@ -1255,6 +1350,7 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
             </table>
           )}
         </div>
+        )}
       </div>
 
       {/* Role-specific instructions footer */}

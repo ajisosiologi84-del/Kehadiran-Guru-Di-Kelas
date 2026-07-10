@@ -1,6 +1,6 @@
 {
-  "name": "Kehadiran Guru Kelas",
-  "description": "Aplikasi pelaporan kehadiran guru di kelas oleh siswa dan input izin oleh guru, dilengkapi dengan dashboard statistik untuk Admin Utama, TU, BK, dan Tata Tertib.",
+  "name": "SAPA Guru: Sistem Absensi & Pelaporan Akuntabel Guru",
+  "description": "Sistem Absensi & Pelaporan Akuntabel Guru - Aplikasi pelaporan kehadiran guru di kelas oleh siswa dan input izin oleh guru, dilengkapi dengan dashboard statistik untuk Admin Utama, TU, BK, dan Tata Tertib.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -57,6 +57,8 @@ export default function App() {
     localStorage.setItem("presence_session", JSON.stringify(newSession));
     if (newSession.type === "ADMIN") {
       setCurrentPage("ADMIN_DASHBOARD");
+    } else if (newSession.type === "TEACHER") {
+      setCurrentPage("TEACHER_FORM");
     } else {
       setCurrentPage("STUDENT_FORM");
     }
@@ -71,7 +73,12 @@ export default function App() {
   // Auto-route on clicking action portal
   const handlePortalClick = (target: "STUDENT" | "TEACHER" | "ADMIN") => {
     if (target === "TEACHER") {
-      setCurrentPage("TEACHER_FORM");
+      if (session && (session.type === "TEACHER" || session.type === "ADMIN")) {
+        setCurrentPage("TEACHER_FORM");
+      } else {
+        setSession(null); // Clear other sessions if any
+        setCurrentPage("TEACHER_FORM"); // Shows login inside view
+      }
     } else if (target === "STUDENT") {
       if (session && session.type === "STUDENT") {
         setCurrentPage("STUDENT_FORM");
@@ -93,7 +100,7 @@ export default function App() {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6" id="loading-screen">
         <Loader2 className="w-10 h-10 text-blue-600 animate-spin mb-4" />
-        <h3 className="text-lg font-bold text-slate-700">Memuat Sistem Kehadiran...</h3>
+        <h3 className="text-lg font-bold text-slate-700">Memuat SAPA Guru...</h3>
         <p className="text-xs text-slate-400 mt-1">Mengambil data guru dan admin kelas langsung dari Google Sheets</p>
       </div>
     );
@@ -127,8 +134,8 @@ export default function App() {
               </div>
             )}
             <div>
-              <h1 className="text-lg font-black text-slate-800 tracking-tight leading-none">PresensiGuru</h1>
-              <p className="text-[10px] text-slate-500 font-semibold tracking-wider uppercase mt-1">Sistem Kehadiran Kelas</p>
+              <h1 className="text-lg font-black text-slate-800 tracking-tight leading-none">SAPA Guru</h1>
+              <p className="text-[10px] text-slate-500 font-semibold tracking-wider uppercase mt-1">Sistem Absensi & Pelaporan Akuntabel Guru</p>
             </div>
           </div>
 
@@ -175,7 +182,11 @@ export default function App() {
             {session && (
               <div className="flex items-center gap-2">
                 <span className="hidden sm:inline text-xs font-bold text-slate-700 bg-slate-100 px-3 py-1.5 rounded-lg">
-                  {session.type === "ADMIN" ? `Admin ${session.role}` : `Kelas: ${session.username}`}
+                  {session.type === "ADMIN" 
+                    ? `Admin ${session.role}` 
+                    : session.type === "TEACHER" 
+                    ? "Admin Guru" 
+                    : `Kelas: ${session.username}`}
                 </span>
                 <button
                   onClick={handleLogout}
@@ -211,14 +222,6 @@ export default function App() {
                 <p className="text-sm text-slate-300 leading-relaxed">
                   Platform digital untuk memudahkan perwakilan siswa dalam melaporkan kehadiran guru di kelas, serta bagi guru untuk mengajukan izin mengajar, terkoneksi langsung dengan dashboard pemantauan multi-admin sekolah.
                 </p>
-                <div className="pt-4 flex flex-wrap gap-4 text-xs font-bold">
-                  <span className="bg-white/5 border border-white/10 px-3.5 py-2 rounded-xl text-slate-300">
-                    Live Sync Google Sheet
-                  </span>
-                  <span className="bg-white/5 border border-white/10 px-3.5 py-2 rounded-xl text-slate-300">
-                    4 Peran Administrator
-                  </span>
-                </div>
               </div>
             </div>
 
@@ -335,7 +338,13 @@ export default function App() {
               <ArrowLeft className="w-4 h-4" /> Kembali ke Menu Beranda
             </button>
 
-            <TeacherLeaveForm scheduleData={activeSchedule} />
+            {session && (session.type === "TEACHER" || session.type === "ADMIN") ? (
+              <TeacherLeaveForm scheduleData={activeSchedule} />
+            ) : (
+              <div className="flex justify-center py-10">
+                <LoginForm onLoginSuccess={handleLoginSuccess} isLoading={isLoading} defaultType="TEACHER" />
+              </div>
+            )}
           </div>
         )}
 
@@ -368,8 +377,8 @@ export default function App() {
       {/* Footer */}
       <footer className="bg-white border-t border-slate-100 py-6 mt-12 text-center text-xs text-slate-400" id="main-footer">
         <div className="max-w-7xl mx-auto px-4">
-          <p>© 2026 PresensiGuru Kelas. Seluruh data disinkronisasikan secara realtime dengan basis data Google Sheets.</p>
-          <p className="mt-1 font-mono text-[10px]">Version 2.0.0 (Full Stack Integration)</p>
+          <p>© 2026 SAPA Guru</p>
+          <p className="mt-1 font-mono text-[10px]">Version 2.0.0</p>
         </div>
       </footer>
     </div>

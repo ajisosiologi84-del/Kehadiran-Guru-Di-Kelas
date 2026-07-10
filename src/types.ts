@@ -37,7 +37,7 @@ export interface TeacherLeaveSubmission {
 export type AdminRole = "UTAMA" | "TU" | "BK" | "TATIB";
 
 export interface UserSession {
-  type: "STUDENT" | "ADMIN";
+  type: "STUDENT" | "ADMIN" | "TEACHER";
   username: string;
   role?: AdminRole;
 }
