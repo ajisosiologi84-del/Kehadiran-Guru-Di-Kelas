@@ -13,7 +13,7 @@ import {
 import {
   FileSpreadsheet, Filter, Search, RotateCw, Trash2, Calendar, FileText, CheckCircle,
   AlertTriangle, UserX, Printer, Download, MessageSquarePlus, RefreshCw, Layers, BellRing, Phone,
-  Edit, Check, X
+  Edit, Check, X, ExternalLink
 } from "lucide-react";
 
 interface AdminDashboardProps {
@@ -30,7 +30,12 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
   const [searchTerm, setSearchTerm] = useState("");
   const [filterHari, setFilterHari] = useState("SEMUA");
   const [filterTanggal, setFilterTanggal] = useState("");
-  const [activeTab, setActiveTab] = useState<"KELAS" | "IZIN" | "SYNC">("KELAS");
+  const [activeTab, setActiveTab] = useState<"KELAS" | "IZIN" | "SYNC" | "PENGATURAN">("KELAS");
+
+  // School Settings
+  const [tempLogoUrl, setTempLogoUrl] = useState("");
+  const [tempInformasiUmum, setTempInformasiUmum] = useState("");
+  const [isSavingSchoolSettings, setIsSavingSchoolSettings] = useState(false);
 
   // Google Apps Script state
   const [appsScriptUrl, setAppsScriptUrl] = useState("");
@@ -134,6 +139,8 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
     try {
       const data = await FirebaseService.getSettings();
       setAppsScriptUrl(data.appsScriptUrl || "");
+      setTempLogoUrl(data.logoUrl || "");
+      setTempInformasiUmum(data.informasiUmum || "");
     } catch (e) {
       console.error("Gagal memuat konfigurasi Google Apps Script:", e);
     }
@@ -142,13 +149,35 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
   const handleSaveSettings = async () => {
     setIsSavingSettings(true);
     try {
-      await FirebaseService.saveSettings({ appsScriptUrl });
+      await FirebaseService.saveSettings({ 
+        appsScriptUrl,
+        logoUrl: tempLogoUrl,
+        informasiUmum: tempInformasiUmum
+      });
       alert("URL Google Apps Script berhasil disimpan!");
     } catch (e: any) {
       console.error(e);
       alert("Gagal menyimpan URL: " + (e.message || e));
     } finally {
       setIsSavingSettings(false);
+    }
+  };
+
+  const handleSaveSchoolSettings = async () => {
+    setIsSavingSchoolSettings(true);
+    try {
+      await FirebaseService.saveSettings({
+        appsScriptUrl,
+        logoUrl: tempLogoUrl,
+        informasiUmum: tempInformasiUmum
+      });
+      alert("Pengaturan logo dan Informasi Umum berhasil disimpan!");
+      window.location.reload(); // reload to apply changes globally
+    } catch (e: any) {
+      console.error(e);
+      alert("Gagal menyimpan pengaturan sekolah: " + (e.message || e));
+    } finally {
+      setIsSavingSchoolSettings(false);
     }
   };
 
@@ -545,17 +574,28 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
             >
               DATA INPUT IZIN (Guru)
             </button>
-            {(role === "UTAMA" || role === "TU") && (
+            <button
+              onClick={() => setActiveTab("SYNC")}
+              id="tab-btn-sync"
+              className={`py-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${
+                activeTab === "SYNC"
+                  ? "text-indigo-600 border-indigo-600"
+                  : "text-slate-400 border-transparent hover:text-slate-700"
+              }`}
+            >
+              SINKRONISASI GSHEET (Otomatis)
+            </button>
+            {role === "UTAMA" && (
               <button
-                onClick={() => setActiveTab("SYNC")}
-                id="tab-btn-sync"
+                onClick={() => setActiveTab("PENGATURAN")}
+                id="tab-btn-pengaturan"
                 className={`py-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${
-                  activeTab === "SYNC"
-                    ? "text-indigo-600 border-indigo-600"
+                  activeTab === "PENGATURAN"
+                    ? "text-purple-600 border-purple-600"
                     : "text-slate-400 border-transparent hover:text-slate-700"
                 }`}
               >
-                SINKRONISASI GSHEET (Otomatis)
+                PENGATURAN SEKOLAH
               </button>
             )}
           </div>
@@ -582,17 +622,103 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
 
         {/* DATA TABLE */}
         <div className="overflow-x-auto">
-          {activeTab === "SYNC" ? (
-            <div className="p-6 max-w-4xl mx-auto space-y-6" id="panel-sync-apps-script">
-              {/* Alert status */}
-              <div className="p-5 rounded-xl border bg-indigo-50/50 border-indigo-100 flex items-start gap-4">
-                <FileSpreadsheet className="w-6 h-6 text-indigo-600 mt-1 shrink-0" />
+          {activeTab === "PENGATURAN" && role === "UTAMA" ? (
+            <div className="p-6 max-w-2xl mx-auto space-y-8" id="panel-pengaturan-utama">
+              {/* Card Header */}
+              <div className="p-5 rounded-xl border bg-purple-50/50 border-purple-100 flex items-start gap-4">
+                <span className="text-2xl">⚙️</span>
                 <div>
-                  <h4 className="text-sm font-bold text-slate-800">Sinkronisasi Otomatis Google Sheets via Google Apps Script</h4>
+                  <h4 className="text-sm font-bold text-slate-800">Pengaturan Identitas & Informasi Sekolah</h4>
                   <p className="text-xs text-slate-500 leading-relaxed mt-1">
-                    Fitur ini memungkinkan data absensi kelas (oleh siswa) dan laporan izin (oleh guru) otomatis terkirim dan tercatat langsung pada sheet <strong>DATA_INPUT_KELAS</strong> dan <strong>DATA_INPUT_IZIN_GURU</strong> di Google Spreadsheet Anda secara real-time saat disubmit, diedit, atau dihapus!
+                    Sebagai <strong>Admin Utama</strong>, Anda dapat menyesuaikan logo instansi sekolah dan mengupdate Informasi Umum/Pengumuman yang muncul di halaman beranda utama sistem.
                   </p>
                 </div>
+              </div>
+
+              {/* Logo Settings Card */}
+              <div className="bg-white border border-slate-200/60 rounded-xl p-5 md:p-6 space-y-4 shadow-sm">
+                <div>
+                  <h4 className="text-xs font-black uppercase text-slate-400 tracking-wider">Logo Instansi Sekolah</h4>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Tempelkan tautan URL gambar logo sekolah Anda di bawah ini (misalnya logo tut wuri handayani, logo dinas, atau logo sekolah).
+                  </p>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-4 items-center">
+                  {/* Logo Preview */}
+                  <div className="w-16 h-16 rounded-xl overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center shrink-0 shadow-sm">
+                    {tempLogoUrl ? (
+                      <img src={tempLogoUrl} alt="Preview Logo" className="max-w-full max-h-full object-contain" referrerPolicy="no-referrer" />
+                    ) : (
+                      <span className="text-xs text-slate-400 font-bold">No Logo</span>
+                    )}
+                  </div>
+                  <div className="flex-1 w-full">
+                    <input
+                      type="url"
+                      placeholder="https://contoh.com/logo-sekolah.png"
+                      value={tempLogoUrl}
+                      onChange={(e) => setTempLogoUrl(e.target.value)}
+                      className="w-full px-4 py-2.5 rounded-lg border border-slate-200 bg-white text-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-purple-500/10 focus:border-purple-500 font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Informasi Umum Card */}
+              <div className="bg-white border border-slate-200/60 rounded-xl p-5 md:p-6 space-y-4 shadow-sm">
+                <div>
+                  <h4 className="text-xs font-black uppercase text-slate-400 tracking-wider">Informasi Umum & Pengumuman Sekolah</h4>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Teks pengumuman atau instruksi umum yang akan dipajang secara menonjol di halaman depan (Lobby) bagi seluruh perwakilan siswa dan guru.
+                  </p>
+                </div>
+
+                <div>
+                  <textarea
+                    rows={4}
+                    placeholder="Contoh: Selamat Datang di Sistem PresensiGuru Kelas! Mohon agar setiap perwakilan siswa (Admin Kelas) melaporkan kehadiran guru maksimal 15 menit setelah jam pelajaran dimulai. Terima kasih atas kerja samanya."
+                    value={tempInformasiUmum}
+                    onChange={(e) => setTempInformasiUmum(e.target.value)}
+                    className="w-full px-4 py-3 rounded-lg border border-slate-200 bg-white text-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-purple-500/10 focus:border-purple-500 leading-relaxed"
+                  />
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handleSaveSchoolSettings}
+                  disabled={isSavingSchoolSettings}
+                  className="px-6 py-2.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 disabled:bg-purple-300 rounded-lg shadow-sm transition-all cursor-pointer"
+                >
+                  {isSavingSchoolSettings ? "Menyimpan Perubahan..." : "Simpan Pengaturan Sekolah"}
+                </button>
+              </div>
+            </div>
+          ) : activeTab === "SYNC" ? (
+            <div className="p-6 max-w-4xl mx-auto space-y-6" id="panel-sync-apps-script">
+              {/* Alert status */}
+              <div className="p-5 rounded-xl border bg-indigo-50/50 border-indigo-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-start gap-4">
+                  <FileSpreadsheet className="w-6 h-6 text-indigo-600 mt-1 shrink-0" />
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-800">Sinkronisasi Otomatis Google Sheets via Google Apps Script</h4>
+                    <p className="text-xs text-slate-500 leading-relaxed mt-1">
+                      Fitur ini memungkinkan data absensi kelas (oleh siswa) dan laporan izin (oleh guru) otomatis terkirim dan tercatat langsung pada sheet <strong>DATA_INPUT_KELAS</strong> dan <strong>DATA_INPUT_IZIN_GURU</strong> di Google Spreadsheet Anda secara real-time saat disubmit, diedit, atau dihapus!
+                    </p>
+                  </div>
+                </div>
+                {/* Button placed beside SINKRONISASI GSHEET (Otomatis) */}
+                <a
+                  href="https://docs.google.com/spreadsheets/d/1I-L5m4C7jOK-3y2hKnzhQEb9GDFzqot7YylhvooC7AM/edit?usp=sharing"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-4 py-2.5 rounded-xl transition-all hover:bg-emerald-100 shrink-0 self-center"
+                >
+                  <ExternalLink className="w-4 h-4" /> Lihat Google Sheet
+                </a>
               </div>
 
               {/* URL Configuration Card */}
@@ -600,7 +726,9 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
                 <div>
                   <h4 className="text-xs font-black uppercase text-slate-400 tracking-wider">Konfigurasi URL Google Apps Script</h4>
                   <p className="text-[11px] text-slate-500 mt-1">
-                    Masukkan URL Aplikasi Web Google Apps Script yang didapatkan setelah melakukan deploy script di bawah.
+                    {role === "UTAMA" || role === "TU" 
+                      ? "Masukkan URL Aplikasi Web Google Apps Script yang didapatkan setelah melakukan deploy script di bawah."
+                      : "Tautan integrasi Web App Google Apps Script sekolah yang terhubung aktif saat ini."}
                   </p>
                 </div>
                 <div className="flex flex-col md:flex-row gap-3">
@@ -609,15 +737,18 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
                     placeholder="https://script.google.com/macros/s/.../exec"
                     value={appsScriptUrl}
                     onChange={(e) => setAppsScriptUrl(e.target.value)}
-                    className="flex-1 px-4 py-2 rounded-lg border border-slate-200 bg-white text-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 font-mono"
+                    disabled={role !== "UTAMA" && role !== "TU"}
+                    className="flex-1 px-4 py-2 rounded-lg border border-slate-200 bg-white disabled:bg-slate-100 text-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 font-mono"
                   />
-                  <button
-                    onClick={handleSaveSettings}
-                    disabled={isSavingSettings}
-                    className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 rounded-lg shadow-sm transition-all shrink-0 cursor-pointer"
-                  >
-                    {isSavingSettings ? "Menyimpan..." : "Simpan URL"}
-                  </button>
+                  {(role === "UTAMA" || role === "TU") && (
+                    <button
+                      onClick={handleSaveSettings}
+                      disabled={isSavingSettings}
+                      className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 rounded-lg shadow-sm transition-all shrink-0 cursor-pointer"
+                    >
+                      {isSavingSettings ? "Menyimpan..." : "Simpan URL"}
+                    </button>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 text-[11px]">
                   <span className={`inline-block w-2.5 h-2.5 rounded-full ${appsScriptUrl ? 'bg-emerald-500' : 'bg-amber-400'}`}></span>
@@ -636,7 +767,7 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
                 <div>
                   <h4 className="text-xs font-black uppercase text-slate-400 tracking-wider">Sinkronisasi Massal Semua Data</h4>
                   <p className="text-[11px] text-slate-500 mt-1">
-                    Jika Anda baru saja mengkonfigurasi Apps Script, atau ingin menyalin semua data lokal yang sudah terlanjur diinput sebelumnya ke Google Sheets, Anda dapat menekan tombol sinkronisasi massal di bawah ini.
+                    Kirimkan seluruh data absensi siswa dan pengajuan izin guru di penyimpanan lokal secara massal ke Google Sheet.
                   </p>
                 </div>
 
@@ -650,14 +781,26 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
                   </div>
                 )}
 
-                <button
-                  onClick={handleSyncAllToSheets}
-                  disabled={isSyncingAll || !appsScriptUrl}
-                  className="flex items-center gap-2 px-5 py-2.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 disabled:bg-slate-100 disabled:text-slate-400 rounded-lg border border-indigo-100/60 transition-all cursor-pointer disabled:cursor-not-allowed"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncingAll ? 'animate-spin' : ''}`} />
-                  {isSyncingAll ? "Sedang Menyinkronkan..." : "Sinkronisasikan Semua Data Ke GSheet Sekarang"}
-                </button>
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    onClick={handleSyncAllToSheets}
+                    disabled={isSyncingAll || !appsScriptUrl}
+                    className="flex items-center gap-2 px-5 py-2.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 disabled:bg-slate-100 disabled:text-slate-400 rounded-lg border border-indigo-100/60 transition-all cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncingAll ? 'animate-spin' : ''}`} />
+                    {isSyncingAll ? "Sedang Menyinkronkan..." : "Sinkronisasikan Semua Data Ke GSheet Sekarang"}
+                  </button>
+
+                  <a
+                    href="https://docs.google.com/spreadsheets/d/1I-L5m4C7jOK-3y2hKnzhQEb9GDFzqot7YylhvooC7AM/edit?usp=sharing"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 px-5 py-2.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition-all cursor-pointer shadow-sm"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    Buka Google Sheet
+                  </a>
+                </div>
               </div>
 
               {/* Instructions and Code Card */}

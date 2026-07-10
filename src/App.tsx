@@ -21,6 +21,7 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState<"HOME" | "STUDENT_FORM" | "TEACHER_FORM" | "ADMIN_DASHBOARD">("HOME");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [settings, setSettings] = useState<{ logoUrl: string; informasiUmum: string } | null>(null);
 
   // Load session from localStorage on mount and fetch schedule data
   useEffect(() => {
@@ -38,8 +39,12 @@ export default function App() {
   const fetchSchedule = async () => {
     setIsLoading(true);
     try {
-      const data = await FirebaseService.getScheduleData();
-      setScheduleData(data);
+      const [sched, setts] = await Promise.all([
+        FirebaseService.getScheduleData(),
+        FirebaseService.getSettings()
+      ]);
+      setScheduleData(sched);
+      setSettings(setts);
     } catch (e) {
       setError("Kesalahan koneksi jaringan saat memuat data.");
     } finally {
@@ -112,9 +117,15 @@ export default function App() {
             className="flex items-center gap-3 cursor-pointer select-none"
             id="brand-logo"
           >
-            <div className="p-2 bg-gradient-to-tr from-blue-600 to-indigo-600 text-white rounded-xl shadow-md shadow-blue-500/20">
-              <ShieldCheck className="w-6 h-6" />
-            </div>
+            {settings?.logoUrl ? (
+              <div className="w-10 h-10 rounded-xl overflow-hidden shadow-md border border-slate-100 flex items-center justify-center bg-white shrink-0">
+                <img src={settings.logoUrl} alt="Logo Sekolah" className="max-w-full max-h-full object-contain" referrerPolicy="no-referrer" />
+              </div>
+            ) : (
+              <div className="p-2 bg-gradient-to-tr from-blue-600 to-indigo-600 text-white rounded-xl shadow-md shadow-blue-500/20 shrink-0">
+                <ShieldCheck className="w-6 h-6" />
+              </div>
+            )}
             <div>
               <h1 className="text-lg font-black text-slate-800 tracking-tight leading-none">PresensiGuru</h1>
               <p className="text-[10px] text-slate-500 font-semibold tracking-wider uppercase mt-1">Sistem Kehadiran Kelas</p>
@@ -161,7 +172,7 @@ export default function App() {
           </nav>
 
           <div className="flex items-center gap-3" id="user-status-bar">
-            {session ? (
+            {session && (
               <div className="flex items-center gap-2">
                 <span className="hidden sm:inline text-xs font-bold text-slate-700 bg-slate-100 px-3 py-1.5 rounded-lg">
                   {session.type === "ADMIN" ? `Admin ${session.role}` : `Kelas: ${session.username}`}
@@ -174,16 +185,6 @@ export default function App() {
                   Keluar
                 </button>
               </div>
-            ) : (
-              <a
-                href="https://docs.google.com/spreadsheets/d/1I-L5m4C7jOK-3y2hKnzhQEb9GDFzqot7YylhvooC7AM/edit?usp=sharing"
-                target="_blank"
-                rel="noopener noreferrer"
-                id="btn-spreadsheet-link"
-                className="flex items-center gap-1 text-xs font-semibold text-emerald-600 hover:bg-emerald-50 border border-emerald-100 px-3 py-1.5 rounded-lg transition-all"
-              >
-                <ExternalLink className="w-3.5 h-3.5" /> Lihat Google Sheet
-              </a>
             )}
           </div>
         </div>
@@ -220,6 +221,19 @@ export default function App() {
                 </div>
               </div>
             </div>
+
+            {/* Informasi Umum Card */}
+            {settings?.informasiUmum && (
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 shadow-sm" id="informasi-umum-card">
+                <h3 className="text-sm font-bold text-amber-850 flex items-center gap-2">
+                  <span className="p-1.5 bg-amber-100 text-amber-800 rounded-lg">📢</span>
+                  INFORMASI UMUM SEKOLAH
+                </h3>
+                <div className="text-xs text-amber-900 mt-2 whitespace-pre-wrap leading-relaxed">
+                  {settings.informasiUmum}
+                </div>
+              </div>
+            )}
 
             {/* Action Portals */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8" id="portals-container">

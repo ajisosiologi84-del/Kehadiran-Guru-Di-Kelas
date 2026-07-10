@@ -168,15 +168,7 @@ export default function LoginForm({ onLoginSuccess, isLoading }: LoginFormProps)
           </button>
         </form>
 
-        {loginType === "ADMIN" && (
-          <div className="mt-6 p-4 rounded-xl bg-slate-50 border border-slate-100 text-[11px] text-slate-500 space-y-1">
-            <div className="font-semibold text-slate-600 mb-1">Informasi Akun Default Admin:</div>
-            <div>• Utama: Password <code className="bg-slate-200 px-1 rounded font-mono text-indigo-600">admin123junior</code></div>
-            <div>• TU: Password <code className="bg-slate-200 px-1 rounded font-mono text-indigo-600">admin123TU</code></div>
-            <div>• BK: Password <code className="bg-slate-200 px-1 rounded font-mono text-indigo-600">admin123BK</code></div>
-            <div>• Tata Tertib: Password <code className="bg-slate-200 px-1 rounded font-mono text-indigo-600">admin123tatib</code></div>
-          </div>
-        )}
+
       </div>
     </div>
   );

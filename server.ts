@@ -730,6 +730,21 @@ initApp();
     }
   });
 
+  // API: Proxy individual push to Apps Script to bypass CORS
+  app.post("/api/sync/push", async (req, res) => {
+    const { action, type, payload } = req.body;
+    if (!action || !type || !payload) {
+      return res.status(400).json({ success: false, error: "Action, type, and payload are required" });
+    }
+    try {
+      await asyncPushToSheets(action, type, payload);
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("Proxy push failed:", err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // API: Login verification
   app.post("/api/login", async (req, res) => {
     const { username, password, type, role } = req.body;

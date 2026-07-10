@@ -189,7 +189,12 @@ export const FirebaseService = {
       try {
         const snap = await getDoc(doc(db, "settings", "main"));
         if (snap.exists()) {
-          return snap.data() as { appsScriptUrl: string };
+          const data = snap.data();
+          return {
+            appsScriptUrl: data.appsScriptUrl || "https://script.google.com/macros/s/AKfycbyU3izS72BeaDMovgdNSx8nLMgRBqFDLxa-fcXX0o2YRsllUpJb5K1f-inPCYoG1es0/exec",
+            logoUrl: data.logoUrl || "",
+            informasiUmum: data.informasiUmum || ""
+          };
         }
       } catch (err) {
         handleFirestoreError(err, OperationType.GET, pathStr);
@@ -199,12 +204,23 @@ export const FirebaseService = {
     // Fallback to local storage or fallback value
     const local = localStorage.getItem("presence_settings");
     if (local) {
-      try { return JSON.parse(local); } catch (e) {}
+      try {
+        const parsed = JSON.parse(local);
+        return {
+          appsScriptUrl: parsed.appsScriptUrl || "https://script.google.com/macros/s/AKfycbyU3izS72BeaDMovgdNSx8nLMgRBqFDLxa-fcXX0o2YRsllUpJb5K1f-inPCYoG1es0/exec",
+          logoUrl: parsed.logoUrl || "",
+          informasiUmum: parsed.informasiUmum || ""
+        };
+      } catch (e) {}
     }
-    return { appsScriptUrl: "https://script.google.com/macros/s/AKfycbyU3izS72BeaDMovgdNSx8nLMgRBqFDLxa-fcXX0o2YRsllUpJb5K1f-inPCYoG1es0/exec" };
+    return {
+      appsScriptUrl: "https://script.google.com/macros/s/AKfycbyU3izS72BeaDMovgdNSx8nLMgRBqFDLxa-fcXX0o2YRsllUpJb5K1f-inPCYoG1es0/exec",
+      logoUrl: "",
+      informasiUmum: ""
+    };
   },
 
-  async saveSettings(settings: { appsScriptUrl: string }) {
+  async saveSettings(settings: { appsScriptUrl: string; logoUrl?: string; informasiUmum?: string }) {
     localStorage.setItem("presence_settings", JSON.stringify(settings));
     if (firebaseActive && db) {
       const pathStr = "settings/main";
@@ -264,101 +280,28 @@ export const FirebaseService = {
     }
   },
 
-  // 3. SYNCHRONIZATION WITH GOOGLE SHEET (DIRECTLY FROM BROWSER)
+  // 3. SYNCHRONIZATION WITH GOOGLE SHEET (VIA SERVER API PROXY TO BYPASS CORS)
   async syncWithGoogleSheet(): Promise<ScheduleData> {
     try {
-      console.log("Client-side syncing schedule from Google Sheet...");
-      const settings = await this.getSettings();
+      console.log("Client-side syncing schedule via server api proxy...");
+      const response = await fetch("/api/sync", {
+        method: "POST"
+      });
+      if (!response.ok) {
+        throw new Error(`Server returned status ${response.status}`);
+      }
       
-      if (settings.appsScriptUrl) {
-        const trimmedUrl = settings.appsScriptUrl.trim();
-        if (trimmedUrl && !trimmedUrl.includes("docs.google.com/spreadsheets")) {
-          try {
-            console.log("Attempting sheet sync via Web App...");
-            const response = await fetchWithTimeout(trimmedUrl, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ action: "get_schedule" })
-            }, 5000);
-            
-            if (response.ok) {
-              const text = await response.text();
-              if (!text.trim().startsWith("<!DOCTYPE") && !text.trim().startsWith("<html")) {
-                const result = JSON.parse(text);
-                if (result && result.namaGuruList && result.namaGuruList.length > 0) {
-                  const schedule: ScheduleData = {
-                    namaGuruList: result.namaGuruList,
-                    mataPelajaranList: result.mataPelajaranList && result.mataPelajaranList.length > 0 ? result.mataPelajaranList : FALLBACK_MATA_PELAJARAN,
-                    jamKeList: result.jamKeList && result.jamKeList.length > 0 ? result.jamKeList : FALLBACK_JAM_KE,
-                    classAdmins: result.classAdmins && Object.keys(result.classAdmins).length > 0 ? result.classAdmins : FALLBACK_CLASS_ADMINS,
-                    lastSync: new Date().toISOString()
-                  };
-                  await this.saveScheduleData(schedule);
-                  return schedule;
-                }
-              }
-            }
-          } catch (scriptErr: any) {
-            console.warn("Client Apps Script fetch failed/timed out, falling back to direct CSV fetch:", scriptErr.message);
-          }
-        }
+      const schedResponse = await fetch("/api/schedule");
+      if (!schedResponse.ok) {
+        throw new Error(`Failed to load updated schedule: ${schedResponse.status}`);
       }
-
-      // Direct CSV Fetch
-      console.log("Fetching live CSV data directly from Google Sheets...");
-      const csvResponse = await fetchWithTimeout(SHEETS_URL, {}, 6000);
-      if (!csvResponse.ok) {
-        throw new Error(`Google Sheets returned HTTP Status ${csvResponse.status}`);
-      }
-      const text = await csvResponse.text();
-      const lines = text.split(/\r?\n/);
-      if (lines.length <= 1) {
-        throw new Error("Invalid or empty spreadsheet format");
-      }
-
-      const namaGuruSet = new Set<string>();
-      const mataPelajaranSet = new Set<string>();
-      const jamKeSet = new Set<string>();
-      const classAdminsMap: Record<string, string> = {};
-
-      for (let i = 1; i < lines.length; i++) {
-        if (!lines[i].trim()) continue;
-        const columns = parseCSVLine(lines[i]);
-        
-        if (columns[2]) {
-          const val = columns[2].replace(/^"|"$/g, '').trim();
-          if (val) namaGuruSet.add(val);
-        }
-        if (columns[3]) {
-          const val = columns[3].replace(/^"|"$/g, '').trim();
-          if (val) mataPelajaranSet.add(val);
-        }
-        if (columns[4]) {
-          const val = columns[4].replace(/^"|"$/g, '').trim();
-          if (val) jamKeSet.add(val);
-        }
-        if (columns[6]) {
-          const username = columns[6].replace(/^"|"$/g, '').trim().toLowerCase();
-          const password = columns[7] ? columns[7].replace(/^"|"$/g, '').trim() : "adminkelas2026";
-          if (username) {
-            classAdminsMap[username] = password;
-          }
-        }
-      }
-
-      const finalSchedule: ScheduleData = {
-        namaGuruList: namaGuruSet.size > 0 ? Array.from(namaGuruSet) : FALLBACK_NAMA_GURU,
-        mataPelajaranList: mataPelajaranSet.size > 0 ? Array.from(mataPelajaranSet) : FALLBACK_MATA_PELAJARAN,
-        jamKeList: jamKeSet.size > 0 ? Array.from(jamKeSet).sort((a,b)=>parseInt(a)-parseInt(b)) : FALLBACK_JAM_KE,
-        classAdmins: Object.keys(classAdminsMap).length > 0 ? classAdminsMap : FALLBACK_CLASS_ADMINS,
-        lastSync: new Date().toISOString()
-      };
-
-      await this.saveScheduleData(finalSchedule);
-      return finalSchedule;
+      const data = await schedResponse.json();
+      await this.saveScheduleData(data);
+      return data;
     } catch (err: any) {
-      console.error("Client Google Sheet synchronization failed:", err.message);
-      throw err;
+      console.error("Client Google Sheet synchronization failed, trying to read cached schedule:", err.message);
+      const cached = await this.getScheduleData();
+      return cached;
     }
   },
 
@@ -575,31 +518,22 @@ export const FirebaseService = {
     return updatedRecord;
   },
 
-  // 6. ASYNC SHEET PUSH (CLIENT SIDE VIA PROXY OR DIRECT)
+  // 6. ASYNC SHEET PUSH (VIA SERVER PROXY TO BYPASS BROWSER CORS)
   async pushToGoogleSheet(action: "add" | "edit" | "delete", type: "kelas" | "izin", payload: any) {
-    const settings = await this.getSettings();
-    if (!settings.appsScriptUrl) {
-      console.log("Apps Script URL not configured, skipping Google Sheets sync.");
-      return;
-    }
-    const trimmedUrl = settings.appsScriptUrl.trim();
-    if (trimmedUrl.includes("docs.google.com/spreadsheets")) {
-      console.error("Configured Apps Script URL is a spreadsheet URL, not Web App.");
-      return;
-    }
-
     try {
-      console.log(`Pushing ${action} ${type} directly to Google Sheets...`);
-      const response = await fetchWithTimeout(trimmedUrl, {
+      console.log(`Pushing ${action} ${type} to Google Sheets via server proxy...`);
+      const response = await fetch("/api/sync/push", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, type, payload })
-      }, 5000);
-      
-      const text = await response.text();
-      console.log("Apps Script push response:", text);
+      });
+      if (!response.ok) {
+        throw new Error(`Server returned status ${response.status}`);
+      }
+      const data = await response.json();
+      console.log("Proxy push response:", data);
     } catch (e: any) {
-      console.error("Failed to push to Google Sheet Web App:", e.message);
+      console.error("Failed to push to Google Sheet Web App via proxy:", e.message);
     }
   },
 
@@ -655,34 +589,26 @@ export const FirebaseService = {
     }
   },
 
-  // 8. SYNC ALL TO GOOGLE SHEET
+  // 8. SYNC ALL TO GOOGLE SHEET (VIA SERVER PROXY TO BYPASS BROWSER CORS)
   async syncAllToGoogleSheet(kelasData: any[], izinData: any[]) {
-    const settings = await this.getSettings();
-    if (!settings.appsScriptUrl) {
-      throw new Error("URL Google Apps Script belum dikonfigurasi!");
-    }
-    const trimmedUrl = settings.appsScriptUrl.trim();
-    if (trimmedUrl.includes("docs.google.com/spreadsheets")) {
-      throw new Error("URL yang dimasukkan adalah link Spreadsheet, bukan URL Aplikasi Web hasil Deploy. Harap buat Deployment Aplikasi Web di menu Ekstensi > Apps Script dan gunakan URL akhiran '/exec'!");
-    }
-
     try {
-      console.log("Syncing all data to Google Sheets via Apps Script...");
-      const response = await fetchWithTimeout(trimmedUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "sync_all",
-          kelasData,
-          izinData
-        })
-      }, 7000);
-
+      console.log("Syncing all data to Google Sheets via server proxy...");
+      const response = await fetch("/api/sync/sheets", {
+        method: "POST"
+      });
+      
       const text = await response.text();
-      if (text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html")) {
-        throw new Error("Apps Script mengembalikan halaman HTML. Pastikan setelan deployment Apps Script Anda memiliki akses 'Anyone'!");
+      let result;
+      try {
+        result = JSON.parse(text);
+      } catch (e) {
+        throw new Error(`Respon tidak valid dari server: ${text.substring(0, 200)}`);
       }
-      return text;
+
+      if (!response.ok) {
+        throw new Error(result.error || "Gagal melakukan sinkronisasi massal.");
+      }
+      return result;
     } catch (error: any) {
       throw new Error(error.message || "Gagal mengirim seluruh data ke Google Sheet.");
     }
