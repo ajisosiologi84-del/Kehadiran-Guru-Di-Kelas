@@ -8,7 +8,8 @@ import { StudentSubmission, TeacherLeaveSubmission, AdminRole, ScheduleData } fr
 import { FirebaseService } from "../firebase";
 import LaporanPanel from "./LaporanPanel";
 
-const sapaGuruMockup = "/src/assets/sapa_guru_mockup.svg";
+// @ts-ignore
+import sapaGuruMockup from "../assets/sapa_guru_mockup.svg";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell

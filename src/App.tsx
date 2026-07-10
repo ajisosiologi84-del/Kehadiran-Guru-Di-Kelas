@@ -10,6 +10,9 @@ import StudentInputForm from "./components/StudentInputForm";
 import TeacherLeaveForm from "./components/TeacherLeaveForm";
 import AdminDashboard from "./components/AdminDashboard";
 import { FirebaseService } from "./firebase";
+
+// @ts-ignore
+import sapaGuruMockup from "./assets/sapa_guru_mockup.svg";
 import {
   GraduationCap, ClipboardList, BookOpen, KeyRound, CalendarDays, ExternalLink,
   ChevronRight, ArrowLeft, Loader2, RefreshCw, LayoutDashboard, ShieldCheck
@@ -301,6 +304,53 @@ export default function App() {
                   <span>{session?.type === "ADMIN" ? "Masuk ke Dashboard" : "Login Admin Sekolah"}</span>
                   <ChevronRight className="w-4 h-4 group-hover:translate-x-1.5 transition-transform" />
                 </div>
+              </div>
+            </div>
+
+            {/* Visual Showcase Banner SAPA Guru */}
+            <div className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-3xl overflow-hidden shadow-xl border border-slate-700/50 flex flex-col lg:flex-row items-center gap-6 p-6 lg:p-8 relative" id="sapaguru-visual-showcase-home">
+              {/* Subtle decorative glowing lights */}
+              <div className="absolute top-0 left-0 w-48 h-48 bg-orange-500/10 rounded-full blur-3xl pointer-events-none"></div>
+              <div className="absolute bottom-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+              <div className="flex-1 space-y-4 z-10 text-left">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-2.5 w-2.5 relative">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                  </span>
+                  <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider">Aplikasi Mobile SAPA Guru Aktif</span>
+                </div>
+                
+                <h3 className="text-xl lg:text-2xl font-black text-white leading-tight tracking-tight">
+                  Sistem Absensi Mandiri &amp; Transparan Terintegrasi Realtime
+                </h3>
+                
+                <p className="text-xs text-slate-300 leading-relaxed max-w-xl">
+                  Tampilan ekosistem digital <strong className="text-emerald-400">SAPA Guru</strong> yang mendeteksi kehadiran mengajar Bapak/Ibu guru secara transparan, akurat, dan realtime. Terhubung langsung dengan database cloud dan sinkronisasi otomatis Google Sheets.
+                </p>
+
+                <div className="flex flex-wrap gap-2.5 pt-2">
+                  <span className="px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700/60 text-[10px] font-bold text-slate-300 flex items-center gap-1.5">
+                    📍 SMA Negeri 2 Kota Pasuruan
+                  </span>
+                  <span className="px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700/60 text-[10px] font-bold text-slate-300 flex items-center gap-1.5">
+                    📱 Pendataan Selfie &amp; Lokasi GPS
+                  </span>
+                  <span className="px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700/60 text-[10px] font-bold text-slate-300 flex items-center gap-1.5">
+                    📊 Rekapitulasi Otomatis (A4/F4)
+                  </span>
+                </div>
+              </div>
+
+              {/* Mockup Image Container */}
+              <div className="w-full lg:w-[480px] shrink-0 z-10 transition-transform duration-500 hover:scale-[1.01]" id="sapaguru-mockup-frame-home">
+                <img 
+                  src={sapaGuruMockup} 
+                  alt="SAPA Guru Mobile App Mockup Showcase" 
+                  className="w-full h-auto object-contain rounded-2xl shadow-lg border border-slate-700/30"
+                  referrerPolicy="no-referrer"
+                />
               </div>
             </div>
           </div>
