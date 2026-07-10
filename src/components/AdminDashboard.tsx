@@ -1380,11 +1380,23 @@ const APPS_SCRIPT_CODE = `function doPost(e) {
         sheetKelas = doc.insertSheet("DATA_INPUT_KELAS");
       }
       sheetKelas.clearContents();
-      sheetKelas.appendRow(["ID", "Hari", "Tanggal", "Nama Guru", "Mata Pelajaran", "Jam Ke", "Keterangan Kehadiran", "Dilaporkan Oleh", "Waktu Input"]);
+      
+      var kelasValues = [["ID", "Hari", "Tanggal", "Nama Guru", "Mata Pelajaran", "Jam Ke", "Keterangan Kehadiran", "Dilaporkan Oleh", "Waktu Input"]];
       for (var i = 0; i < kelasData.length; i++) {
         var item = kelasData[i];
-        sheetKelas.appendRow([item.id, item.hari, item.tanggal, item.namaGuru, item.mataPelajaran, item.jamKe, item.keteranganKehadiran, item.submittedBy, item.submittedAt]);
+        kelasValues.push([
+          item.id ? item.id.toString() : "",
+          item.hari ? item.hari.toString() : "",
+          item.tanggal ? item.tanggal.toString() : "",
+          item.namaGuru ? item.namaGuru.toString() : "",
+          item.mataPelajaran ? item.mataPelajaran.toString() : "",
+          item.jamKe ? item.jamKe.toString() : "",
+          item.keteranganKehadiran ? item.keteranganKehadiran.toString() : "",
+          item.submittedBy ? item.submittedBy.toString() : "",
+          item.submittedAt ? item.submittedAt.toString() : ""
+        ]);
       }
+      sheetKelas.getRange(1, 1, kelasValues.length, 9).setValues(kelasValues);
       
       // Update DATA_INPUT_IZIN_GURU sheet
       var sheetIzin = doc.getSheetByName("DATA_INPUT_IZIN_GURU");
@@ -1392,11 +1404,23 @@ const APPS_SCRIPT_CODE = `function doPost(e) {
         sheetIzin = doc.insertSheet("DATA_INPUT_IZIN_GURU");
       }
       sheetIzin.clearContents();
-      sheetIzin.appendRow(["ID", "Hari", "Tanggal", "Nama Guru", "Mata Pelajaran", "Jam Ke", "Status Kehadiran", "Keterangan Alasan", "Waktu Input"]);
+      
+      var izinValues = [["ID", "Hari", "Tanggal", "Nama Guru", "Mata Pelajaran", "Jam Ke", "Status Kehadiran", "Keterangan Alasan", "Waktu Input"]];
       for (var j = 0; j < izinData.length; j++) {
         var item = izinData[j];
-        sheetIzin.appendRow([item.id, item.hari, item.tanggal, item.namaGuru, item.mataPelajaran, item.jamKe, item.keteranganKehadiran, item.keteranganIzinGuru, item.submittedAt]);
+        izinValues.push([
+          item.id ? item.id.toString() : "",
+          item.hari ? item.hari.toString() : "",
+          item.tanggal ? item.tanggal.toString() : "",
+          item.namaGuru ? item.namaGuru.toString() : "",
+          item.mataPelajaran ? item.mataPelajaran.toString() : "",
+          item.jamKe ? item.jamKe.toString() : "",
+          item.keteranganKehadiran ? item.keteranganKehadiran.toString() : "",
+          item.keteranganIzinGuru ? item.keteranganIzinGuru.toString() : "",
+          item.submittedAt ? item.submittedAt.toString() : ""
+        ]);
       }
+      sheetIzin.getRange(1, 1, izinValues.length, 9).setValues(izinValues);
       
       return ContentService.createTextOutput(JSON.stringify({ success: true, message: "Sinkronisasi massal seluruh data berhasil!" }))
         .setMimeType(ContentService.MimeType.JSON);

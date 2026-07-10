@@ -201,7 +201,7 @@ async function syncWithGoogleSheet() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ action: "get_schedule" })
-          }, 4000);
+          }, 30000); // GSheet sync schedule: 30s timeout
           
           if (response.ok) {
             const text = await response.text();
@@ -233,7 +233,7 @@ async function syncWithGoogleSheet() {
     }
 
     console.log("Fetching live data from Google Sheet CSV directly...");
-    const response = await fetchWithTimeout(SHEETS_URL, {}, 4000);
+    const response = await fetchWithTimeout(SHEETS_URL, {}, 15000); // GSheet CSV download: 15s timeout
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
@@ -457,7 +457,7 @@ async function asyncPushToSheets(action: "add" | "edit" | "delete", type: "kelas
         type,
         payload
       })
-    }, 4000);
+    }, 30000); // GSheet sync push: 30s timeout
     const text = await res.text();
     if (text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html")) {
       console.error("Apps Script push returned HTML instead of JSON. Ensure web app is deployed with 'Anyone' access.");
@@ -694,7 +694,7 @@ initApp();
           kelasData,
           izinData
         })
-      }, 5000);
+      }, 90000); // GSheet sync all (mass sync): 90s timeout to prevent aborted errors on larger datasets
 
       const text = await response.text();
       console.log("Apps Script sync response text (length):", text.length);
