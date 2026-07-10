@@ -666,7 +666,27 @@ initApp();
     res.json({ success: true });
   });
 
-  // API: Sync All local data to Google Sheets
+  // Background sync jobs storage to prevent gateway timeout
+  interface SyncJob {
+    id: string;
+    status: "pending" | "success" | "error";
+    error?: string;
+    startedAt: string;
+    completedAt?: string;
+  }
+  const syncJobs: Record<string, SyncJob> = {};
+
+  // Periodically clean up sync jobs older than 1 day
+  setInterval(() => {
+    const now = Date.now();
+    for (const [id, job] of Object.entries(syncJobs)) {
+      if (now - new Date(job.startedAt).getTime() > 24 * 60 * 60 * 1000) {
+        delete syncJobs[id];
+      }
+    }
+  }, 60 * 60 * 1000);
+
+  // API: Sync All local data to Google Sheets (Background Execution)
   app.post("/api/sync/sheets", async (req, res) => {
     const settings = await loadSettings();
     if (!settings.appsScriptUrl) {
@@ -681,53 +701,85 @@ initApp();
       });
     }
 
-    try {
-      const kelasData = await loadSubmissionsKelas();
-      const izinData = await loadSubmissionsIzin();
+    const jobId = `sync_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    syncJobs[jobId] = {
+      id: jobId,
+      status: "pending",
+      startedAt: new Date().toISOString()
+    };
 
-      console.log("Syncing all data to Google Sheets via Apps Script...");
-      const response = await fetchWithTimeout(trimmedUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "sync_all",
-          kelasData,
-          izinData
-        })
-      }, 90000); // GSheet sync all (mass sync): 90s timeout to prevent aborted errors on larger datasets
+    console.log(`[Job ${jobId}] Created new background sync job...`);
 
-      const text = await response.text();
-      console.log("Apps Script sync response text (length):", text.length);
+    // Respond immediately with success and the jobId so the connection doesn't block and time out
+    res.json({ success: true, jobId, status: "pending" });
 
-      if (text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html") || text.trim().startsWith("<script")) {
-        console.error("Received HTML response instead of JSON. Snippet:", text.substring(0, 300));
-        const scriptError = extractAppsScriptError(text);
-        return res.status(400).json({
-          success: false,
-          error: `Google Apps Script Error: ${scriptError}. \n\nPastikan Anda sudah mengikuti petunjuk dengan benar: \n1. Buka Apps Script dari menu Ekstensi > Apps Script di dalam Google Sheet.\n2. Klik tombol "Jalankan" sekali untuk mengizinkan otorisasi Akun Google.\n3. Deploy ulang Web App Anda dengan "Execute as: Me (Saya)" dan "Who has access: Anyone (Siapa saja)".\n4. Pastikan URL berakhiran /exec.`
-        });
-      }
-
-      let result;
+    // Run the actual heavyweight synchronization in the background
+    (async () => {
       try {
-        result = JSON.parse(text);
-      } catch (parseError: any) {
-        console.error("Failed to parse response as JSON. Content:", text);
-        return res.status(500).json({
-          success: false,
-          error: `Respon dari Google Apps Script tidak valid JSON. Pastikan script Anda sudah disimpan dan di-Deploy dengan benar. Isi respon: ${text.substring(0, 150)}...`
-        });
-      }
+        const kelasData = await loadSubmissionsKelas();
+        const izinData = await loadSubmissionsIzin();
 
-      if (result.success) {
-        return res.json({ success: true, message: "Semua data berhasil disinkronisasikan ke Google Sheets!" });
-      } else {
-        return res.status(500).json({ success: false, error: result.error || "Gagal sinkronisasi dari Google Apps Script" });
+        console.log(`[Job ${jobId}] Syncing data in background to Google Sheets...`);
+        const response = await fetchWithTimeout(trimmedUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "sync_all",
+            kelasData,
+            izinData
+          })
+        }, 90000); // 90-second timeout for the background fetch to GSheets
+
+        const text = await response.text();
+        console.log(`[Job ${jobId}] Background Apps Script response length:`, text.length);
+
+        if (text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html") || text.trim().startsWith("<script")) {
+          console.error(`[Job ${jobId}] Apps Script returned HTML (Auth issue or incorrect deployment)`);
+          const scriptError = extractAppsScriptError(text);
+          syncJobs[jobId].status = "error";
+          syncJobs[jobId].error = `Google Apps Script Error: ${scriptError}. \n\nPastikan Anda sudah mengizinkan otorisasi Akun Google di editor Apps Script dan men-deploy ulang dengan akses "Anyone" (Siapa saja).`;
+          syncJobs[jobId].completedAt = new Date().toISOString();
+          return;
+        }
+
+        let result;
+        try {
+          result = JSON.parse(text);
+        } catch (parseError: any) {
+          console.error(`[Job ${jobId}] Failed to parse response JSON:`, text);
+          syncJobs[jobId].status = "error";
+          syncJobs[jobId].error = `Respon dari Google Apps Script tidak valid JSON. Isi respon: ${text.substring(0, 150)}...`;
+          syncJobs[jobId].completedAt = new Date().toISOString();
+          return;
+        }
+
+        if (result.success) {
+          syncJobs[jobId].status = "success";
+          syncJobs[jobId].completedAt = new Date().toISOString();
+          console.log(`[Job ${jobId}] Background sync completed successfully!`);
+        } else {
+          syncJobs[jobId].status = "error";
+          syncJobs[jobId].error = result.error || "Gagal sinkronisasi dari Google Apps Script";
+          syncJobs[jobId].completedAt = new Date().toISOString();
+          console.error(`[Job ${jobId}] Background sync failed:`, result.error);
+        }
+      } catch (err: any) {
+        console.error(`[Job ${jobId}] Background sync error:`, err.message);
+        syncJobs[jobId].status = "error";
+        syncJobs[jobId].error = "Gagal terhubung dengan URL Google Apps Script: " + err.message;
+        syncJobs[jobId].completedAt = new Date().toISOString();
       }
-    } catch (e: any) {
-      console.error("Error syncing all data:", e);
-      return res.status(500).json({ success: false, error: "Gagal terhubung dengan URL Google Apps Script: " + e.message });
+    })();
+  });
+
+  // API: Get background sync job status
+  app.get("/api/sync/status/:jobId", (req, res) => {
+    const { jobId } = req.params;
+    const job = syncJobs[jobId];
+    if (!job) {
+      return res.status(404).json({ success: false, error: "Tugas sinkronisasi tidak ditemukan" });
     }
+    res.json(job);
   });
 
   // API: Proxy individual push to Apps Script to bypass CORS

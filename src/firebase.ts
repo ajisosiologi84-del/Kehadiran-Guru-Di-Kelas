@@ -589,26 +589,57 @@ export const FirebaseService = {
     }
   },
 
-  // 8. SYNC ALL TO GOOGLE SHEET (VIA SERVER PROXY TO BYPASS BROWSER CORS)
+  // 8. SYNC ALL TO GOOGLE SHEET (VIA SERVER PROXY TO BYPASS BROWSER CORS & BEYOND TIMEOUT)
   async syncAllToGoogleSheet(kelasData: any[], izinData: any[]) {
     try {
-      console.log("Syncing all data to Google Sheets via server proxy...");
+      console.log("Syncing all data to Google Sheets: Starting background task...");
       const response = await fetch("/api/sync/sheets", {
         method: "POST"
       });
       
       const text = await response.text();
-      let result;
+      let initResult;
       try {
-        result = JSON.parse(text);
+        initResult = JSON.parse(text);
       } catch (e) {
         throw new Error(`Respon tidak valid dari server: ${text.substring(0, 200)}`);
       }
 
       if (!response.ok) {
-        throw new Error(result.error || "Gagal melakukan sinkronisasi massal.");
+        throw new Error(initResult.error || "Gagal melakukan sinkronisasi massal.");
       }
-      return result;
+
+      const jobId = initResult.jobId;
+      if (!jobId) {
+        throw new Error("Gagal menerima ID tugas sinkronisasi dari server.");
+      }
+
+      console.log(`Job started with ID: ${jobId}. Polling status...`);
+      
+      let attempts = 0;
+      const maxAttempts = 60; // 60 * 2 seconds = 120 seconds max wait
+      
+      while (attempts < maxAttempts) {
+        attempts++;
+        // Wait for 2 seconds before checking status
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        const statusResponse = await fetch(`/api/sync/status/${jobId}`);
+        if (!statusResponse.ok) {
+          throw new Error(`Gagal melacak status sinkronisasi: HTTP ${statusResponse.status}`);
+        }
+
+        const job = await statusResponse.json();
+        if (job.status === "success") {
+          return { success: true, message: "Sinkronisasi massal seluruh data berhasil!" };
+        } else if (job.status === "error") {
+          throw new Error(job.error || "Gagal melakukan sinkronisasi massal.");
+        }
+
+        // status is "pending", keep polling...
+      }
+
+      throw new Error("Proses sinkronisasi di latar belakang memakan waktu terlalu lama (Timeout 120 detik). Silakan periksa Google Sheet Anda beberapa saat lagi.");
     } catch (error: any) {
       throw new Error(error.message || "Gagal mengirim seluruh data ke Google Sheet.");
     }
