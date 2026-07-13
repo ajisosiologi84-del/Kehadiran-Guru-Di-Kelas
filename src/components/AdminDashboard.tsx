@@ -1564,13 +1564,14 @@ const APPS_SCRIPT_CODE = `function doPost(e) {
       }
       sheetKelas.clearContents();
       
-      var kelasValues = [["ID", "Hari", "Tanggal", "Nama Guru", "Mata Pelajaran", "Jam Ke", "Keterangan Kehadiran", "Dilaporkan Oleh", "Waktu Input"]];
+      var kelasValues = [["ID", "Hari", "Tanggal", "Kelas", "Nama Guru", "Mata Pelajaran", "Jam Ke", "Keterangan Kehadiran", "Dilaporkan Oleh", "Waktu Input"]];
       for (var i = 0; i < kelasData.length; i++) {
         var item = kelasData[i];
         kelasValues.push([
           item.id ? item.id.toString() : "",
           item.hari ? item.hari.toString() : "",
           item.tanggal ? item.tanggal.toString() : "",
+          item.kelas ? item.kelas.toString() : "",
           item.namaGuru ? item.namaGuru.toString() : "",
           item.mataPelajaran ? item.mataPelajaran.toString() : "",
           item.jamKe ? item.jamKe.toString() : "",
@@ -1579,7 +1580,7 @@ const APPS_SCRIPT_CODE = `function doPost(e) {
           item.submittedAt ? item.submittedAt.toString() : ""
         ]);
       }
-      sheetKelas.getRange(1, 1, kelasValues.length, 9).setValues(kelasValues);
+      sheetKelas.getRange(1, 1, kelasValues.length, 10).setValues(kelasValues);
       
       // Update DATA_INPUT_IZIN_GURU sheet
       var sheetIzin = doc.getSheetByName("DATA_INPUT_IZIN_GURU");
@@ -1588,13 +1589,14 @@ const APPS_SCRIPT_CODE = `function doPost(e) {
       }
       sheetIzin.clearContents();
       
-      var izinValues = [["ID", "Hari", "Tanggal", "Nama Guru", "Mata Pelajaran", "Jam Ke", "Status Kehadiran", "Keterangan Alasan", "Waktu Input"]];
+      var izinValues = [["ID", "Hari", "Tanggal", "Kelas", "Nama Guru", "Mata Pelajaran", "Jam Ke", "Status Kehadiran", "Keterangan Alasan", "Waktu Input"]];
       for (var j = 0; j < izinData.length; j++) {
         var item = izinData[j];
         izinValues.push([
           item.id ? item.id.toString() : "",
           item.hari ? item.hari.toString() : "",
           item.tanggal ? item.tanggal.toString() : "",
+          item.kelas ? item.kelas.toString() : "",
           item.namaGuru ? item.namaGuru.toString() : "",
           item.mataPelajaran ? item.mataPelajaran.toString() : "",
           item.jamKe ? item.jamKe.toString() : "",
@@ -1603,7 +1605,7 @@ const APPS_SCRIPT_CODE = `function doPost(e) {
           item.submittedAt ? item.submittedAt.toString() : ""
         ]);
       }
-      sheetIzin.getRange(1, 1, izinValues.length, 9).setValues(izinValues);
+      sheetIzin.getRange(1, 1, izinValues.length, 10).setValues(izinValues);
       
       return ContentService.createTextOutput(JSON.stringify({ success: true, message: "Sinkronisasi massal seluruh data berhasil!" }))
         .setMimeType(ContentService.MimeType.JSON);
@@ -1614,17 +1616,17 @@ const APPS_SCRIPT_CODE = `function doPost(e) {
     if (!sheet) {
       sheet = doc.insertSheet(sheetName);
       if (type === 'kelas') {
-        sheet.appendRow(["ID", "Hari", "Tanggal", "Nama Guru", "Mata Pelajaran", "Jam Ke", "Keterangan Kehadiran", "Dilaporkan Oleh", "Waktu Input"]);
+        sheet.appendRow(["ID", "Hari", "Tanggal", "Kelas", "Nama Guru", "Mata Pelajaran", "Jam Ke", "Keterangan Kehadiran", "Dilaporkan Oleh", "Waktu Input"]);
       } else {
-        sheet.appendRow(["ID", "Hari", "Tanggal", "Nama Guru", "Mata Pelajaran", "Jam Ke", "Status Kehadiran", "Keterangan Alasan", "Waktu Input"]);
+        sheet.appendRow(["ID", "Hari", "Tanggal", "Kelas", "Nama Guru", "Mata Pelajaran", "Jam Ke", "Status Kehadiran", "Keterangan Alasan", "Waktu Input"]);
       }
     }
     
     if (action === 'add') {
       if (type === 'kelas') {
-        sheet.appendRow([payload.id, payload.hari, payload.tanggal, payload.namaGuru, payload.mataPelajaran, payload.jamKe, payload.keteranganKehadiran, payload.submittedBy, payload.submittedAt]);
+        sheet.appendRow([payload.id, payload.hari, payload.tanggal, payload.kelas || "", payload.namaGuru, payload.mataPelajaran, payload.jamKe, payload.keteranganKehadiran, payload.submittedBy, payload.submittedAt]);
       } else {
-        sheet.appendRow([payload.id, payload.hari, payload.tanggal, payload.namaGuru, payload.mataPelajaran, payload.jamKe, payload.keteranganKehadiran, payload.keteranganIzinGuru, payload.submittedAt]);
+        sheet.appendRow([payload.id, payload.hari, payload.tanggal, payload.kelas || "", payload.namaGuru, payload.mataPelajaran, payload.jamKe, payload.keteranganKehadiran, payload.keteranganIzinGuru, payload.submittedAt]);
       }
     } else if (action === 'edit' || action === 'delete') {
       var data = sheet.getDataRange().getValues();
@@ -1642,17 +1644,17 @@ const APPS_SCRIPT_CODE = `function doPost(e) {
           sheet.deleteRow(targetRow);
         } else if (action === 'edit') {
           if (type === 'kelas') {
-            sheet.getRange(targetRow, 1, 1, 9).setValues([[payload.id, payload.hari, payload.tanggal, payload.namaGuru, payload.mataPelajaran, payload.jamKe, payload.keteranganKehadiran, payload.submittedBy, payload.submittedAt]]);
+            sheet.getRange(targetRow, 1, 1, 10).setValues([[payload.id, payload.hari, payload.tanggal, payload.kelas || "", payload.namaGuru, payload.mataPelajaran, payload.jamKe, payload.keteranganKehadiran, payload.submittedBy, payload.submittedAt]]);
           } else {
-            sheet.getRange(targetRow, 1, 1, 9).setValues([[payload.id, payload.hari, payload.tanggal, payload.namaGuru, payload.mataPelajaran, payload.jamKe, payload.keteranganKehadiran, payload.keteranganIzinGuru, payload.submittedAt]]);
+            sheet.getRange(targetRow, 1, 1, 10).setValues([[payload.id, payload.hari, payload.tanggal, payload.kelas || "", payload.namaGuru, payload.mataPelajaran, payload.jamKe, payload.keteranganKehadiran, payload.keteranganIzinGuru, payload.submittedAt]]);
           }
         }
       } else {
         if (action === 'edit') {
           if (type === 'kelas') {
-            sheet.appendRow([payload.id, payload.hari, payload.tanggal, payload.namaGuru, payload.mataPelajaran, payload.jamKe, payload.keteranganKehadiran, payload.submittedBy, payload.submittedAt]);
+            sheet.appendRow([payload.id, payload.hari, payload.tanggal, payload.kelas || "", payload.namaGuru, payload.mataPelajaran, payload.jamKe, payload.keteranganKehadiran, payload.submittedBy, payload.submittedAt]);
           } else {
-            sheet.appendRow([payload.id, payload.hari, payload.tanggal, payload.namaGuru, payload.mataPelajaran, payload.jamKe, payload.keteranganKehadiran, payload.keteranganIzinGuru, payload.submittedAt]);
+            sheet.appendRow([payload.id, payload.hari, payload.tanggal, payload.kelas || "", payload.namaGuru, payload.mataPelajaran, payload.jamKe, payload.keteranganKehadiran, payload.keteranganIzinGuru, payload.submittedAt]);
           }
         }
       }

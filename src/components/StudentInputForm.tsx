@@ -4,9 +4,9 @@
  */
 
 import { useState, useEffect, FormEvent } from "react";
-import { ScheduleData, StudentSubmission, KELAS_LIST } from "../types";
+import { ScheduleData, StudentSubmission, KELAS_LIST, TeacherLeaveSubmission } from "../types";
 import { FirebaseService } from "../firebase";
-import { ClipboardList, Calendar, User, BookOpen, Clock, FileCheck, CheckCircle2, AlertCircle, Layers } from "lucide-react";
+import { ClipboardList, Calendar, User, BookOpen, Clock, FileCheck, CheckCircle2, AlertCircle, Layers, Megaphone, Filter, Info, Bell } from "lucide-react";
 
 interface StudentInputFormProps {
   scheduleData: ScheduleData;
@@ -41,6 +41,8 @@ export default function StudentInputForm({ scheduleData, username }: StudentInpu
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [mySubmissions, setMySubmissions] = useState<StudentSubmission[]>([]);
+  const [recentLeaves, setRecentLeaves] = useState<TeacherLeaveSubmission[]>([]);
+  const [filterClassOnly, setFilterClassOnly] = useState(true);
 
   // Set today's date and correct day of week on mount
   useEffect(() => {
@@ -73,7 +75,19 @@ export default function StudentInputForm({ scheduleData, username }: StudentInpu
     setSelectedKelas(getDefaultKelas(username));
 
     fetchMySubmissions();
+    fetchRecentLeaves();
   }, [scheduleData, username]);
+
+  const fetchRecentLeaves = async () => {
+    try {
+      const data = await FirebaseService.getSubmissionsIzin();
+      // Sort newest first
+      data.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+      setRecentLeaves(data);
+    } catch (e) {
+      console.error("Gagal memuat info izin guru:", e);
+    }
+  };
 
   const fetchMySubmissions = async () => {
     try {
@@ -128,6 +142,7 @@ export default function StudentInputForm({ scheduleData, username }: StudentInpu
         text: `Berhasil melaporkan kehadiran Guru: ${selectedGuru} [${keterangan}]`
       });
       fetchMySubmissions();
+      fetchRecentLeaves();
     } catch (err: any) {
       console.error("Submission error:", err);
       setMessage({ type: "error", text: err.message || "Terjadi kesalahan saat mengirimkan data." });
@@ -178,6 +193,83 @@ export default function StudentInputForm({ scheduleData, username }: StudentInpu
             <div className="text-sm font-medium">{message.text}</div>
           </div>
         )}
+
+        {/* Info Guru Berhalangan Hadir Hari Ini untuk Kelas terpilih */}
+        {(() => {
+          const classLeavesToday = recentLeaves.filter(sub => 
+            sub.tanggal === tanggal && 
+            sub.kelas === selectedKelas
+          );
+          if (classLeavesToday.length > 0) {
+            return (
+              <div 
+                id="class-leaves-summary-alert"
+                className="mb-6 p-4 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 shadow-sm animate-pulse-slow"
+              >
+                <div className="flex items-center gap-2 mb-2 text-amber-800 font-bold text-sm">
+                  <Megaphone className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>Informasi Guru Piket: Guru Izin Hari Ini di Kelas {selectedKelas}</span>
+                  <span className="ml-auto bg-amber-600 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">
+                    {classLeavesToday.length} Guru
+                  </span>
+                </div>
+                <div className="text-xs text-amber-800 space-y-1.5">
+                  <p>Bapak/Ibu guru berikut berhalangan hadir di kelas Anda hari ini. Siswa diimbau tertib dan belajar mandiri:</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
+                    {classLeavesToday.map((leave, idx) => (
+                      <div key={idx} className="bg-white/80 p-2.5 rounded-lg border border-amber-200/50 space-y-1">
+                        <div className="flex justify-between items-center">
+                          <span className="font-extrabold text-slate-800">{leave.namaGuru}</span>
+                          <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-bold">Jam {leave.jamKe}</span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 font-medium truncate">{leave.mataPelajaran}</p>
+                        <p className="text-[10px] text-amber-700 italic font-medium leading-relaxed bg-amber-100/30 p-1 rounded">
+                          " {leave.keteranganIzinGuru} "
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            );
+          }
+          return null;
+        })()}
+
+        {/* Alert spesifik jika Guru yang sedang dipilih di dropdown sedang Izin hari ini */}
+        {(() => {
+          if (!selectedGuru) return null;
+          const matchingLeave = recentLeaves.find(sub => 
+            sub.namaGuru.trim().toLowerCase() === selectedGuru.trim().toLowerCase() && 
+            sub.tanggal === tanggal &&
+            sub.kelas === selectedKelas
+          );
+          if (matchingLeave) {
+            return (
+              <div 
+                id="selected-teacher-leave-alert"
+                className="mb-6 p-4 rounded-xl border border-red-200 bg-red-50 flex items-start gap-3 text-red-900"
+              >
+                <Bell className="w-5 h-5 text-red-600 shrink-0 mt-0.5 animate-bounce" />
+                <div className="space-y-1">
+                  <h4 className="text-sm font-bold text-red-800">
+                    Peringatan Penting! Guru Sedang Izin/Sakit
+                  </h4>
+                  <p className="text-xs text-red-700 leading-relaxed">
+                    Bapak/Ibu <strong className="text-slate-800 font-extrabold">{selectedGuru}</strong> telah mengajukan status <strong className="text-red-800 font-bold">{matchingLeave.keteranganKehadiran}</strong> hari ini ({hari}, {tanggal}) untuk kelas <strong className="font-bold">{selectedKelas}</strong> pada <strong className="font-bold">Jam Ke-{matchingLeave.jamKe}</strong>.
+                  </p>
+                  <p className="text-xs text-slate-500 italic bg-white/60 p-1.5 rounded border border-red-100 mt-1">
+                    Keterangan: "{matchingLeave.keteranganIzinGuru}"
+                  </p>
+                  <div className="mt-2 text-[10px] text-red-800/90 font-semibold">
+                    💡 Harap sesuaikan Keterangan Kehadiran Guru di bawah ini menjadi "{matchingLeave.keteranganKehadiran}" sesuai laporan resmi beliau.
+                  </div>
+                </div>
+              </div>
+            );
+          }
+          return null;
+        })()}
 
         <form onSubmit={handleSubmit} className="space-y-6" id="student-input-form">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -357,58 +449,204 @@ export default function StudentInputForm({ scheduleData, username }: StudentInpu
         </form>
       </div>
 
-      {/* History Log Panel */}
-      <div className="bg-slate-50 rounded-2xl border border-slate-100 p-6 shadow-sm" id="student-history-card">
-        <h3 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
-          <Clock className="w-4 h-4 text-slate-500" /> Riwayat Input Hari Ini
-        </h3>
-
-        {mySubmissions.length === 0 ? (
-          <div className="bg-white border border-slate-100 rounded-xl p-8 text-center text-slate-400 text-xs">
-            Belum ada laporan dari kelas Anda hari ini. Gunakan form di samping untuk mulai menginput.
+      {/* Sidebar Panel containing Izin Guru & Riwayat Input */}
+      <div className="space-y-6 lg:col-span-1" id="student-sidebar-container">
+        
+        {/* Section 1: Pengajuan Izin Guru Terbaru */}
+        <div className="bg-slate-50 rounded-2xl border border-slate-100 p-6 shadow-sm" id="student-leaves-card">
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <h3 className="text-sm font-extrabold text-slate-800 flex items-center gap-2">
+              <Megaphone className="w-4 h-4 text-amber-500 shrink-0" /> Pengajuan Izin Terbaru
+            </h3>
+            <button
+              type="button"
+              onClick={fetchRecentLeaves}
+              className="text-[11px] text-blue-600 hover:text-blue-800 hover:underline font-bold cursor-pointer"
+            >
+              Refresh
+            </button>
           </div>
-        ) : (
-          <div className="space-y-3 max-h-[460px] overflow-y-auto pr-1" id="student-history-list">
-            {mySubmissions.map((sub) => (
-              <div
-                key={sub.id}
-                className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm space-y-2 relative hover:shadow-md transition-all duration-200"
-              >
-                <div className="flex justify-between items-start gap-2">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {sub.kelas && (
-                      <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">
-                        {sub.kelas}
+
+          <p className="text-[11px] text-slate-500 mb-3 leading-relaxed">
+            Daftar Bapak/Ibu Guru yang sedang izin/sakit. Gunakan info ini untuk verifikasi kehadiran.
+          </p>
+
+          {/* Toggle Filter Class */}
+          <div className="flex gap-1 bg-slate-200/60 p-1 rounded-lg text-xs mb-4">
+            <button
+              type="button"
+              onClick={() => setFilterClassOnly(true)}
+              className={`flex-1 py-1.5 rounded-md font-semibold transition-all ${
+                filterClassOnly 
+                  ? "bg-white text-slate-800 shadow-xs" 
+                  : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              Kelas Anda ({selectedKelas})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterClassOnly(false)}
+              className={`flex-1 py-1.5 rounded-md font-semibold transition-all ${
+                !filterClassOnly 
+                  ? "bg-white text-slate-800 shadow-xs" 
+                  : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              Semua Kelas
+            </button>
+          </div>
+
+          {(() => {
+            const leavesToDisplay = recentLeaves.filter(sub => {
+              if (filterClassOnly) {
+                return sub.kelas === selectedKelas;
+              }
+              return true;
+            });
+
+            if (leavesToDisplay.length === 0) {
+              return (
+                <div className="bg-white border border-slate-100 rounded-xl p-6 text-center text-slate-400 text-xs">
+                  {filterClassOnly 
+                    ? `Alhamdulillah, belum ada pengajuan izin/sakit guru untuk Kelas ${selectedKelas} hari ini.`
+                    : "Belum ada pengajuan izin/sakit guru terdaftar hari ini."}
+                </div>
+              );
+            }
+
+            return (
+              <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1" id="student-leaves-list">
+                {leavesToDisplay.map((sub) => {
+                  const isToday = sub.tanggal === tanggal;
+                  const isMyClass = sub.kelas === selectedKelas;
+                  return (
+                    <div
+                      key={sub.id}
+                      className={`p-3.5 rounded-xl border transition-all duration-200 space-y-2 relative hover:shadow-md ${
+                        isMyClass 
+                          ? "bg-amber-50/50 border-amber-300" 
+                          : "bg-white border-slate-100"
+                      }`}
+                    >
+                      {/* Pulse effect if today's leave */}
+                      {isToday && (
+                        <div className="absolute top-3.5 right-3 flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                        </div>
+                      )}
+
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="flex items-center gap-1.5 flex-wrap pr-4">
+                          {sub.kelas && (
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                              isMyClass 
+                                ? "bg-amber-100 text-amber-800 border border-amber-200" 
+                                : "bg-slate-100 text-slate-600"
+                            }`}>
+                              {sub.kelas} {isMyClass && "⭐"}
+                            </span>
+                          )}
+                          <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                            Jam {sub.jamKe}
+                          </span>
+                        </div>
+                        <span
+                          className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                            sub.keteranganKehadiran === "IZIN"
+                              ? "bg-amber-100 text-amber-800 border border-amber-200"
+                              : "bg-sky-100 text-sky-800 border border-sky-200"
+                          }`}
+                        >
+                          {sub.keteranganKehadiran}
+                        </span>
+                      </div>
+
+                      <h4 className="text-xs font-bold text-slate-800 leading-snug">
+                        {sub.namaGuru}
+                      </h4>
+                      
+                      <div className="text-[10px] text-slate-600 flex items-center gap-1 font-medium bg-slate-50 p-1.5 rounded">
+                        <BookOpen className="w-3 h-3 text-slate-400" />
+                        <span className="truncate">{sub.mataPelajaran}</span>
+                      </div>
+
+                      <div className="text-xs bg-slate-100/40 text-slate-600 p-2 rounded-lg border border-slate-200/40">
+                        <p className="text-[9px] text-slate-400 font-bold mb-0.5 uppercase tracking-wider">Alasan Izin:</p>
+                        <p className="italic text-[11px] font-medium leading-relaxed">"{sub.keteranganIzinGuru}"</p>
+                      </div>
+
+                      <div className="text-[9px] text-slate-400 flex justify-between items-center pt-1.5 border-t border-slate-100">
+                        <span>{sub.hari}, {sub.tanggal}</span>
+                        {isToday ? (
+                          <span className="text-rose-600 font-bold bg-rose-50 px-1.5 py-0.2 rounded-full border border-rose-100 text-[9px]">HARI INI</span>
+                        ) : (
+                          <span>Lampau</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </div>
+
+        {/* Section 2: Riwayat Input Hari Ini */}
+        <div className="bg-slate-50 rounded-2xl border border-slate-100 p-6 shadow-sm" id="student-history-card">
+          <h3 className="text-sm font-extrabold text-slate-800 mb-4 flex items-center gap-2">
+            <Clock className="w-4 h-4 text-slate-500" /> Riwayat Input Hari Ini
+          </h3>
+
+          {mySubmissions.length === 0 ? (
+            <div className="bg-white border border-slate-100 rounded-xl p-8 text-center text-slate-400 text-xs">
+              Belum ada laporan dari kelas Anda hari ini. Gunakan form di samping untuk mulai menginput.
+            </div>
+          ) : (
+            <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1" id="student-history-list">
+              {mySubmissions.map((sub) => (
+                <div
+                  key={sub.id}
+                  className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm space-y-2 relative hover:shadow-md transition-all duration-200"
+                >
+                  <div className="flex justify-between items-start gap-2">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {sub.kelas && (
+                        <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">
+                          {sub.kelas}
+                        </span>
+                      )}
+                      <span className="text-[10px] font-semibold font-mono text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
+                        Jam Ke-{sub.jamKe}
                       </span>
-                    )}
-                    <span className="text-[10px] font-semibold font-mono text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                      Jam Ke-{sub.jamKe}
+                    </div>
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        sub.keteranganKehadiran === "HADIR"
+                          ? "bg-emerald-50 text-emerald-700 border border-emerald-100"
+                          : sub.keteranganKehadiran === "IZIN"
+                          ? "bg-amber-50 text-amber-700 border border-amber-100"
+                          : sub.keteranganKehadiran === "SAKIT"
+                          ? "bg-sky-50 text-sky-700 border border-sky-100"
+                          : "bg-rose-50 text-rose-700 border border-rose-100"
+                      }`}
+                    >
+                      {sub.keteranganKehadiran}
                     </span>
                   </div>
-                  <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                      sub.keteranganKehadiran === "HADIR"
-                        ? "bg-emerald-50 text-emerald-700 border border-emerald-100"
-                        : sub.keteranganKehadiran === "IZIN"
-                        ? "bg-amber-50 text-amber-700 border border-amber-100"
-                        : sub.keteranganKehadiran === "SAKIT"
-                        ? "bg-sky-50 text-sky-700 border border-sky-100"
-                        : "bg-rose-50 text-rose-700 border border-rose-100"
-                    }`}
-                  >
-                    {sub.keteranganKehadiran}
-                  </span>
+                  <h4 className="text-xs font-bold text-slate-700 line-clamp-1">{sub.namaGuru}</h4>
+                  <p className="text-[11px] text-slate-500 line-clamp-1">{sub.mataPelajaran}</p>
+                  <div className="text-[9px] text-slate-400 border-t border-slate-50 pt-1.5 flex justify-between">
+                    <span>{sub.hari}, {sub.tanggal}</span>
+                    <span>{new Date(sub.submittedAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}</span>
+                  </div>
                 </div>
-                <h4 className="text-xs font-bold text-slate-700 line-clamp-1">{sub.namaGuru}</h4>
-                <p className="text-[11px] text-slate-500 line-clamp-1">{sub.mataPelajaran}</p>
-                <div className="text-[9px] text-slate-400 border-t border-slate-50 pt-1.5 flex justify-between">
-                  <span>{sub.hari}, {sub.tanggal}</span>
-                  <span>{new Date(sub.submittedAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+              ))}
+            </div>
+          )}
+        </div>
+
       </div>
     </div>
   );

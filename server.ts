@@ -469,6 +469,42 @@ async function asyncPushToSheets(action: "add" | "edit" | "delete", type: "kelas
   }
 }
 
+async function syncAllSubmissionsToSheets() {
+  const settings = await loadSettings();
+  if (!settings.appsScriptUrl) {
+    console.log("Apps Script URL not configured, skipping bulk submissions sheet sync.");
+    return;
+  }
+  
+  const trimmedUrl = settings.appsScriptUrl.trim();
+  if (trimmedUrl.includes("docs.google.com/spreadsheets")) {
+    console.error("Configured Apps Script URL is actually a spreadsheet link, skipping bulk sync.");
+    return;
+  }
+  
+  try {
+    console.log("Loading all submissions for bulk GSheet sync...");
+    const kelasData = await loadSubmissionsKelas();
+    const izinData = await loadSubmissionsIzin();
+    
+    console.log(`Pushing bulk sync_all to Google Sheet via Apps Script... (Kelas: ${kelasData.length}, Izin: ${izinData.length})`);
+    const res = await fetchWithTimeout(trimmedUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "sync_all",
+        kelasData,
+        izinData
+      })
+    }, 45000); // 45s timeout for bulk sync
+    
+    const text = await res.text();
+    console.log("Apps Script bulk sync response text:", text);
+  } catch (error: any) {
+    console.error("Error bulk syncing to Apps Script:", error.message);
+  }
+}
+
 async function loadSubmissionsKelas(): Promise<any[]> {
   if (firebaseActive && db) {
     try {
@@ -629,9 +665,19 @@ initApp();
 
   // API: Sync Google Sheets manually (can be triggered by main admin)
   app.post("/api/sync", async (req, res) => {
-    await syncWithGoogleSheet();
-    await saveCachedScheduleToFirestore();
-    res.json({ success: true, lastSync: cachedScheduleData.lastSync });
+    try {
+      // 1. Pull latest reference lists from sheet DATA_UTAMA
+      await syncWithGoogleSheet();
+      await saveCachedScheduleToFirestore();
+
+      // 2. Push all existing submissions in Firestore/local db to Google Sheets in bulk
+      await syncAllSubmissionsToSheets();
+
+      res.json({ success: true, lastSync: cachedScheduleData.lastSync });
+    } catch (err: any) {
+      console.error("Manual GSheets sync failed:", err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
   });
 
   // API: Get reference schedule data
@@ -771,7 +817,8 @@ initApp();
       jamKe: record.jamKe || "1",
       keteranganKehadiran: record.keteranganKehadiran,
       submittedBy: record.submittedBy,
-      submittedAt: new Date().toISOString()
+      submittedAt: new Date().toISOString(),
+      kelas: record.kelas || ""
     };
 
     data.push(newRecord);
@@ -811,7 +858,8 @@ initApp();
       jamKe: record.jamKe || data[index].jamKe,
       keteranganKehadiran: record.keteranganKehadiran || data[index].keteranganKehadiran,
       hari: record.hari || data[index].hari,
-      tanggal: record.tanggal || data[index].tanggal
+      tanggal: record.tanggal || data[index].tanggal,
+      kelas: record.kelas !== undefined ? record.kelas : data[index].kelas
     };
     await saveSubmissionsKelas(data);
     await asyncPushToSheets("edit", "kelas", data[index]);
@@ -841,7 +889,8 @@ initApp();
       jamKe: record.jamKe || "1",
       keteranganKehadiran: record.keteranganKehadiran, // "IZIN" or "SAKIT"
       keteranganIzinGuru: record.keteranganIzinGuru,
-      submittedAt: new Date().toISOString()
+      submittedAt: new Date().toISOString(),
+      kelas: record.kelas || ""
     };
 
     data.push(newRecord);
@@ -882,7 +931,8 @@ initApp();
       keteranganKehadiran: record.keteranganKehadiran || data[index].keteranganKehadiran,
       keteranganIzinGuru: record.keteranganIzinGuru || data[index].keteranganIzinGuru,
       hari: record.hari || data[index].hari,
-      tanggal: record.tanggal || data[index].tanggal
+      tanggal: record.tanggal || data[index].tanggal,
+      kelas: record.kelas !== undefined ? record.kelas : data[index].kelas
     };
     await saveSubmissionsIzin(data);
     await asyncPushToSheets("edit", "izin", data[index]);
