@@ -335,7 +335,8 @@ export const FirebaseService = {
       jamKe: record.jamKe || "1",
       keteranganKehadiran: record.keteranganKehadiran,
       submittedBy: record.submittedBy,
-      submittedAt: new Date().toISOString()
+      submittedAt: new Date().toISOString(),
+      kelas: record.kelas || ""
     };
 
     // Save to Firestore
@@ -391,7 +392,8 @@ export const FirebaseService = {
       jamKe: record.jamKe || current[index].jamKe,
       keteranganKehadiran: record.keteranganKehadiran || current[index].keteranganKehadiran,
       hari: record.hari || current[index].hari,
-      tanggal: record.tanggal || current[index].tanggal
+      tanggal: record.tanggal || current[index].tanggal,
+      kelas: record.kelas !== undefined ? record.kelas : current[index].kelas
     };
 
     if (firebaseActive && db) {
@@ -442,7 +444,8 @@ export const FirebaseService = {
       jamKe: record.jamKe || "1",
       keteranganKehadiran: record.keteranganKehadiran, // "IZIN" or "SAKIT"
       keteranganIzinGuru: record.keteranganIzinGuru,
-      submittedAt: new Date().toISOString()
+      submittedAt: new Date().toISOString(),
+      kelas: record.kelas || ""
     };
 
     if (firebaseActive && db) {
@@ -497,7 +500,8 @@ export const FirebaseService = {
       keteranganKehadiran: record.keteranganKehadiran || current[index].keteranganKehadiran,
       keteranganIzinGuru: record.keteranganIzinGuru || current[index].keteranganIzinGuru,
       hari: record.hari || current[index].hari,
-      tanggal: record.tanggal || current[index].tanggal
+      tanggal: record.tanggal || current[index].tanggal,
+      kelas: record.kelas !== undefined ? record.kelas : current[index].kelas
     };
 
     if (firebaseActive && db) {

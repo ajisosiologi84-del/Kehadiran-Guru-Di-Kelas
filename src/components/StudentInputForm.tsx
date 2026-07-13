@@ -4,9 +4,9 @@
  */
 
 import { useState, useEffect, FormEvent } from "react";
-import { ScheduleData, StudentSubmission } from "../types";
+import { ScheduleData, StudentSubmission, KELAS_LIST } from "../types";
 import { FirebaseService } from "../firebase";
-import { ClipboardList, Calendar, User, BookOpen, Clock, FileCheck, CheckCircle2, AlertCircle } from "lucide-react";
+import { ClipboardList, Calendar, User, BookOpen, Clock, FileCheck, CheckCircle2, AlertCircle, Layers } from "lucide-react";
 
 interface StudentInputFormProps {
   scheduleData: ScheduleData;
@@ -16,8 +16,23 @@ interface StudentInputFormProps {
 const HARI_LIST = ["Senin", "Selasa", "Rabu", "Kamis", "Jum'at", "Sabtu", "Minggu"];
 
 export default function StudentInputForm({ scheduleData, username }: StudentInputFormProps) {
+  // Pre-select based on username, e.g., "adminkelasx1" -> "X-1", "adminkelasxi5" -> "XI-5"
+  const getDefaultKelas = (uname: string) => {
+    const match = uname.match(/adminkelas([a-z]+)(\d+)/);
+    if (match) {
+      const tingkat = match[1].toUpperCase(); // "X", "XI", "XII"
+      const nomor = match[2];
+      const parsedKelas = `${tingkat}-${nomor}`;
+      if (KELAS_LIST.includes(parsedKelas)) {
+        return parsedKelas;
+      }
+    }
+    return "X-1"; // fallback
+  };
+
   const [hari, setHari] = useState("Senin");
   const [tanggal, setTanggal] = useState("");
+  const [selectedKelas, setSelectedKelas] = useState("X-1");
   const [selectedGuru, setSelectedGuru] = useState("");
   const [selectedMapel, setSelectedMapel] = useState("");
   const [selectedJams, setSelectedJams] = useState<string[]>([]);
@@ -55,8 +70,10 @@ export default function StudentInputForm({ scheduleData, username }: StudentInpu
       setSelectedJams([scheduleData.jamKeList[0]]);
     }
 
+    setSelectedKelas(getDefaultKelas(username));
+
     fetchMySubmissions();
-  }, [scheduleData]);
+  }, [scheduleData, username]);
 
   const fetchMySubmissions = async () => {
     try {
@@ -102,7 +119,8 @@ export default function StudentInputForm({ scheduleData, username }: StudentInpu
         mataPelajaran: selectedMapel,
         jamKe: jamKeString,
         keteranganKehadiran: keterangan,
-        submittedBy: username
+        submittedBy: username,
+        kelas: selectedKelas
       });
 
       setMessage({
@@ -235,46 +253,66 @@ export default function StudentInputForm({ scheduleData, username }: StudentInpu
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Jam Ke (Checkboxes) */}
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-slate-600 flex items-center gap-2">
-                <Clock className="w-3.5 h-3.5 text-slate-400" /> Jam Ke- <span className="text-[10px] text-slate-400 font-normal">(Centang 1-4 jam)</span>
-              </label>
-              <div className="grid grid-cols-4 gap-1.5" id="student-jam-checkbox-group">
-                {scheduleData.jamKeList.map((j) => {
-                  const isChecked = selectedJams.includes(j);
-                  const isMaxReached = selectedJams.length >= 4 && !isChecked;
-                  return (
-                    <button
-                      key={j}
-                      type="button"
-                      id={`jam-check-${j}`}
-                      disabled={isMaxReached && !isChecked}
-                      onClick={() => {
-                        if (isChecked) {
-                          setSelectedJams(prev => prev.filter(item => item !== j));
-                        } else {
-                          setSelectedJams(prev => [...prev, j]);
-                        }
-                      }}
-                      className={`py-2 text-center text-xs font-bold rounded-lg border transition-all duration-200 ${
-                        isChecked
-                          ? "bg-blue-600 border-blue-600 text-white shadow-sm"
-                          : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-slate-50 cursor-pointer disabled:cursor-not-allowed"
-                      }`}
-                    >
-                      {j}
-                    </button>
-                  );
-                })}
+            {/* Left Column: Kelas & Jam Ke */}
+            <div className="space-y-5">
+              {/* Kelas Dropdown */}
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-slate-600 flex items-center gap-2">
+                  <Layers className="w-3.5 h-3.5 text-blue-500" /> Kelas
+                </label>
+                <select
+                  id="student-kelas"
+                  value={selectedKelas}
+                  onChange={(e) => setSelectedKelas(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-800 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-bold"
+                >
+                  {KELAS_LIST.map((k) => (
+                    <option key={k} value={k}>{k}</option>
+                  ))}
+                </select>
               </div>
-              {selectedJams.length === 0 ? (
-                <p className="text-[10px] text-rose-500 font-medium">Pilih minimal 1 jam.</p>
-              ) : (
-                <p className="text-[10px] text-slate-400 font-medium">
-                  Terpilih: Jam {([...selectedJams].map(Number).sort((a, b) => a - b).join(", "))}
-                </p>
-              )}
+
+              {/* Jam Ke (Checkboxes) */}
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-slate-600 flex items-center gap-2">
+                  <Clock className="w-3.5 h-3.5 text-slate-400" /> Jam Ke- <span className="text-[10px] text-slate-400 font-normal">(Centang 1-4 jam)</span>
+                </label>
+                <div className="grid grid-cols-4 gap-1.5" id="student-jam-checkbox-group">
+                  {scheduleData.jamKeList.map((j) => {
+                    const isChecked = selectedJams.includes(j);
+                    const isMaxReached = selectedJams.length >= 4 && !isChecked;
+                    return (
+                      <button
+                        key={j}
+                        type="button"
+                        id={`jam-check-${j}`}
+                        disabled={isMaxReached && !isChecked}
+                        onClick={() => {
+                          if (isChecked) {
+                            setSelectedJams(prev => prev.filter(item => item !== j));
+                          } else {
+                            setSelectedJams(prev => [...prev, j]);
+                          }
+                        }}
+                        className={`py-2 text-center text-xs font-bold rounded-lg border transition-all duration-200 ${
+                          isChecked
+                            ? "bg-blue-600 border-blue-600 text-white shadow-sm"
+                            : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-slate-50 cursor-pointer disabled:cursor-not-allowed"
+                        }`}
+                      >
+                        {j}
+                      </button>
+                    );
+                  })}
+                </div>
+                {selectedJams.length === 0 ? (
+                  <p className="text-[10px] text-rose-500 font-medium">Pilih minimal 1 jam.</p>
+                ) : (
+                  <p className="text-[10px] text-slate-400 font-medium">
+                    Terpilih: Jam {([...selectedJams].map(Number).sort((a, b) => a - b).join(", "))}
+                  </p>
+                )}
+              </div>
             </div>
 
             {/* Keterangan Kehadiran */}
@@ -337,9 +375,16 @@ export default function StudentInputForm({ scheduleData, username }: StudentInpu
                 className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm space-y-2 relative hover:shadow-md transition-all duration-200"
               >
                 <div className="flex justify-between items-start gap-2">
-                  <span className="text-[10px] font-semibold font-mono text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                    Jam Ke-{sub.jamKe}
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {sub.kelas && (
+                      <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">
+                        {sub.kelas}
+                      </span>
+                    )}
+                    <span className="text-[10px] font-semibold font-mono text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
+                      Jam Ke-{sub.jamKe}
+                    </span>
+                  </div>
                   <span
                     className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                       sub.keteranganKehadiran === "HADIR"

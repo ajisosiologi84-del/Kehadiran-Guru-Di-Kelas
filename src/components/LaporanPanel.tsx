@@ -146,6 +146,7 @@ export default function LaporanPanel({
           "No": idx + 1,
           "Hari": item.hari,
           "Tanggal": item.tanggal,
+          "Kelas": item.kelas || "-",
           "Nama Guru": item.namaGuru,
           "Mata Pelajaran": item.mataPelajaran,
           "Jam Ke": item.jamKe,
@@ -169,6 +170,7 @@ export default function LaporanPanel({
           "No": idx + 1,
           "Hari": item.hari,
           "Tanggal": item.tanggal,
+          "Kelas": item.kelas || "-",
           "Nama Guru": item.namaGuru,
           "Mata Pelajaran": item.mataPelajaran,
           "Jam Ke": item.jamKe,
@@ -274,10 +276,11 @@ export default function LaporanPanel({
         drawHeader("LAPORAN HASIL DATA INPUT KELAS (SISWA)", "Merekam Kehadiran Mengajar Guru Di Setiap Kelas");
 
         // Format data
-        const headers = ["No", "Hari / Tanggal", "Nama Guru", "Mata Pelajaran", "Jam Ke", "Status Kehadiran", "Pelapor"];
+        const headers = ["No", "Hari / Tanggal", "Kelas", "Nama Guru", "Mata Pelajaran", "Jam Ke", "Status Kehadiran", "Pelapor"];
         const rows = filteredKelas.map((item, idx) => [
           idx + 1,
           `${item.hari}\n${item.tanggal}`,
+          item.kelas || "-",
           item.namaGuru,
           item.mataPelajaran,
           `Jam Ke-${item.jamKe}`,
@@ -299,7 +302,7 @@ export default function LaporanPanel({
           alternateRowStyles: { fillColor: [248, 250, 252] },
           margin: { left: 10, right: 10 },
           didParseCell: function (data) {
-            if (data.section === 'body' && data.column.index === 5) {
+            if (data.section === 'body' && data.column.index === 6) {
               const val = data.cell.raw;
               if (val === "HADIR") {
                 data.cell.styles.textColor = [16, 185, 129]; // Emerald
@@ -331,10 +334,11 @@ export default function LaporanPanel({
         drawHeader("LAPORAN DATA INPUT IZIN MENGAJAR (GURU)", "Merekam Pengajuan Absensi Izin & Sakit Guru Resmi");
 
         // Format data
-        const headers = ["No", "Hari / Tanggal", "Nama Guru", "Mata Pelajaran", "Jam Ke", "Status Izin", "Keterangan / Alasan Izin"];
+        const headers = ["No", "Hari / Tanggal", "Kelas", "Nama Guru", "Mata Pelajaran", "Jam Ke", "Status Izin", "Keterangan / Alasan Izin"];
         const rows = filteredIzin.map((item, idx) => [
           idx + 1,
           `${item.hari}\n${item.tanggal}`,
+          item.kelas || "-",
           item.namaGuru,
           item.mataPelajaran,
           `Jam Ke-${item.jamKe}`,
@@ -356,7 +360,7 @@ export default function LaporanPanel({
           alternateRowStyles: { fillColor: [248, 250, 252] },
           margin: { left: 10, right: 10 },
           didParseCell: function (data) {
-            if (data.section === 'body' && data.column.index === 5) {
+            if (data.section === 'body' && data.column.index === 6) {
               data.cell.styles.textColor = [217, 119, 6];
               data.cell.styles.fontStyle = "bold";
             }

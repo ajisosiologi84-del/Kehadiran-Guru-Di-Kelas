@@ -4,9 +4,9 @@
  */
 
 import { useState, useEffect, FormEvent } from "react";
-import { ScheduleData, TeacherLeaveSubmission } from "../types";
+import { ScheduleData, TeacherLeaveSubmission, KELAS_LIST } from "../types";
 import { FirebaseService } from "../firebase";
-import { Calendar, User, BookOpen, Clock, FileText, CheckCircle2, AlertCircle, HelpCircle } from "lucide-react";
+import { Calendar, User, BookOpen, Clock, FileText, CheckCircle2, AlertCircle, HelpCircle, Layers } from "lucide-react";
 
 interface TeacherLeaveFormProps {
   scheduleData: ScheduleData;
@@ -17,6 +17,7 @@ const HARI_LIST = ["Senin", "Selasa", "Rabu", "Kamis", "Jum'at", "Sabtu", "Mingg
 export default function TeacherLeaveForm({ scheduleData }: TeacherLeaveFormProps) {
   const [hari, setHari] = useState("Senin");
   const [tanggal, setTanggal] = useState("");
+  const [selectedKelas, setSelectedKelas] = useState("X-1");
   const [selectedGuru, setSelectedGuru] = useState("");
   const [selectedMapel, setSelectedMapel] = useState("");
   const [selectedJams, setSelectedJams] = useState<string[]>([]);
@@ -51,6 +52,8 @@ export default function TeacherLeaveForm({ scheduleData }: TeacherLeaveFormProps
     if (scheduleData.jamKeList && scheduleData.jamKeList.length > 0) {
       setSelectedJams([scheduleData.jamKeList[0]]);
     }
+
+    setSelectedKelas("X-1");
 
     fetchRecentLeaves();
   }, [scheduleData]);
@@ -97,7 +100,8 @@ export default function TeacherLeaveForm({ scheduleData }: TeacherLeaveFormProps
         mataPelajaran: selectedMapel,
         jamKe: jamKeString,
         keteranganKehadiran: keterangan,
-        keteranganIzinGuru: keteranganIzin
+        keteranganIzinGuru: keteranganIzin,
+        kelas: selectedKelas
       });
 
       setMessage({
@@ -220,46 +224,66 @@ export default function TeacherLeaveForm({ scheduleData }: TeacherLeaveFormProps
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Jam Ke (Checkboxes) */}
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-slate-600 flex items-center gap-2">
-                <Clock className="w-3.5 h-3.5 text-slate-400" /> Jam Ke- <span className="text-[10px] text-slate-400 font-normal">(Centang 1-4 jam)</span>
-              </label>
-              <div className="grid grid-cols-4 gap-1.5" id="teacher-jam-checkbox-group">
-                {scheduleData.jamKeList.map((j) => {
-                  const isChecked = selectedJams.includes(j);
-                  const isMaxReached = selectedJams.length >= 4 && !isChecked;
-                  return (
-                    <button
-                      key={j}
-                      type="button"
-                      id={`jam-check-${j}`}
-                      disabled={isMaxReached && !isChecked}
-                      onClick={() => {
-                        if (isChecked) {
-                          setSelectedJams(prev => prev.filter(item => item !== j));
-                        } else {
-                          setSelectedJams(prev => [...prev, j]);
-                        }
-                      }}
-                      className={`py-2 text-center text-xs font-bold rounded-lg border transition-all duration-200 ${
-                        isChecked
-                          ? "bg-amber-600 border-amber-600 text-white shadow-sm"
-                          : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-slate-50 cursor-pointer disabled:cursor-not-allowed"
-                      }`}
-                    >
-                      {j}
-                    </button>
-                  );
-                })}
+            {/* Left Column: Kelas & Jam Ke */}
+            <div className="space-y-5">
+              {/* Kelas Dropdown */}
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-slate-600 flex items-center gap-2">
+                  <Layers className="w-3.5 h-3.5 text-amber-500" /> Kelas yang Ditinggalkan
+                </label>
+                <select
+                  id="teacher-kelas"
+                  value={selectedKelas}
+                  onChange={(e) => setSelectedKelas(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-800 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all font-bold"
+                >
+                  {KELAS_LIST.map((k) => (
+                    <option key={k} value={k}>{k}</option>
+                  ))}
+                </select>
               </div>
-              {selectedJams.length === 0 ? (
-                <p className="text-[10px] text-rose-500 font-medium">Pilih minimal 1 jam.</p>
-              ) : (
-                <p className="text-[10px] text-slate-400 font-medium">
-                  Terpilih: Jam {([...selectedJams].map(Number).sort((a, b) => a - b).join(", "))}
-                </p>
-              )}
+
+              {/* Jam Ke (Checkboxes) */}
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-slate-600 flex items-center gap-2">
+                  <Clock className="w-3.5 h-3.5 text-slate-400" /> Jam Ke- <span className="text-[10px] text-slate-400 font-normal">(Centang 1-4 jam)</span>
+                </label>
+                <div className="grid grid-cols-4 gap-1.5" id="teacher-jam-checkbox-group">
+                  {scheduleData.jamKeList.map((j) => {
+                    const isChecked = selectedJams.includes(j);
+                    const isMaxReached = selectedJams.length >= 4 && !isChecked;
+                    return (
+                      <button
+                        key={j}
+                        type="button"
+                        id={`jam-check-${j}`}
+                        disabled={isMaxReached && !isChecked}
+                        onClick={() => {
+                          if (isChecked) {
+                            setSelectedJams(prev => prev.filter(item => item !== j));
+                          } else {
+                            setSelectedJams(prev => [...prev, j]);
+                          }
+                        }}
+                        className={`py-2 text-center text-xs font-bold rounded-lg border transition-all duration-200 ${
+                          isChecked
+                            ? "bg-amber-600 border-amber-600 text-white shadow-sm"
+                            : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-slate-50 cursor-pointer disabled:cursor-not-allowed"
+                        }`}
+                      >
+                        {j}
+                      </button>
+                    );
+                  })}
+                </div>
+                {selectedJams.length === 0 ? (
+                  <p className="text-[10px] text-rose-500 font-medium">Pilih minimal 1 jam.</p>
+                ) : (
+                  <p className="text-[10px] text-slate-400 font-medium">
+                    Terpilih: Jam {([...selectedJams].map(Number).sort((a, b) => a - b).join(", "))}
+                  </p>
+                )}
+              </div>
             </div>
 
             {/* Keterangan Kehadiran */}
@@ -342,9 +366,16 @@ export default function TeacherLeaveForm({ scheduleData }: TeacherLeaveFormProps
                   className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm space-y-1 hover:shadow-md transition-all duration-200"
                 >
                   <div className="flex justify-between items-start gap-2">
-                    <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
-                      Jam Ke-{sub.jamKe}
-                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {sub.kelas && (
+                        <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
+                          {sub.kelas}
+                        </span>
+                      )}
+                      <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                        Jam Ke-{sub.jamKe}
+                      </span>
+                    </div>
                     <span
                       className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
                         sub.keteranganKehadiran === "IZIN"

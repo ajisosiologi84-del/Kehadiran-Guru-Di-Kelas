@@ -20,6 +20,7 @@ export interface StudentSubmission {
   keteranganKehadiran: KeteranganKehadiran;
   submittedBy: string; // username of Class Admin
   submittedAt: string; // ISO string
+  kelas?: string;
 }
 
 export interface TeacherLeaveSubmission {
@@ -32,6 +33,7 @@ export interface TeacherLeaveSubmission {
   keteranganKehadiran: "IZIN" | "SAKIT";
   keteranganIzinGuru: string;
   submittedAt: string; // ISO string
+  kelas?: string;
 }
 
 export type AdminRole = "UTAMA" | "TU" | "BK" | "TATIB";
@@ -49,3 +51,9 @@ export interface ScheduleData {
   classAdmins: Record<string, string>; // username -> password
   lastSync?: string;
 }
+
+export const KELAS_LIST = [
+  "X-1", "X-2", "X-3", "X-4", "X-5", "X-6", "X-7", "X-8", "X-9", "X-10",
+  "XI-1", "XI-2", "XI-3", "XI-4", "XI-5", "XI-6", "XI-7", "XI-8", "XI-9", "XI-10",
+  "XII-1", "XII-2", "XII-3", "XII-4", "XII-5", "XII-6", "XII-7", "XII-8", "XII-9", "XII-10"
+];

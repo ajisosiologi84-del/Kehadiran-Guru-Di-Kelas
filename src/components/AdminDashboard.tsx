@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from "react";
-import { StudentSubmission, TeacherLeaveSubmission, AdminRole, ScheduleData } from "../types";
+import { StudentSubmission, TeacherLeaveSubmission, AdminRole, ScheduleData, KELAS_LIST } from "../types";
 import { FirebaseService } from "../firebase";
 import LaporanPanel from "./LaporanPanel";
 
@@ -121,6 +121,7 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
   const [editKeteranganIzinGuru, setEditKeteranganIzinGuru] = useState("");
   const [editHari, setEditHari] = useState("");
   const [editTanggal, setEditTanggal] = useState("");
+  const [editKelas, setEditKelas] = useState("");
 
   const startEditKelas = (item: StudentSubmission) => {
     setEditingKelasId(item.id);
@@ -130,6 +131,7 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
     setEditKeteranganKehadiran(item.keteranganKehadiran);
     setEditHari(item.hari || "");
     setEditTanggal(item.tanggal || "");
+    setEditKelas(item.kelas || "");
   };
 
   const cancelEditKelas = () => {
@@ -144,7 +146,8 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
         jamKe: editJamKe,
         keteranganKehadiran: editKeteranganKehadiran,
         hari: editHari,
-        tanggal: editTanggal
+        tanggal: editTanggal,
+        kelas: editKelas
       });
       setSubmissionsKelas(prev => prev.map(item => item.id === id ? { ...item, ...updated } : item));
       setEditingKelasId(null);
@@ -163,6 +166,7 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
     setEditKeteranganIzinGuru(item.keteranganIzinGuru);
     setEditHari(item.hari || "");
     setEditTanggal(item.tanggal || "");
+    setEditKelas(item.kelas || "");
   };
 
   const cancelEditIzin = () => {
@@ -178,7 +182,8 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
         keteranganKehadiran: editKeteranganKehadiran,
         keteranganIzinGuru: editKeteranganIzinGuru,
         hari: editHari,
-        tanggal: editTanggal
+        tanggal: editTanggal,
+        kelas: editKelas
       });
       setSubmissionsIzin(prev => prev.map(item => item.id === id ? { ...item, ...updated } : item));
       setEditingIzinId(null);
@@ -302,14 +307,14 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
     let rows = [];
 
     if (activeTab === "KELAS") {
-      headers = ["Hari", "Tanggal", "Nama Guru", "Mata Pelajaran", "Jam Ke", "Keterangan Kehadiran", "Dilaporkan Oleh", "Waktu Input"];
+      headers = ["Hari", "Tanggal", "Kelas", "Nama Guru", "Mata Pelajaran", "Jam Ke", "Keterangan Kehadiran", "Dilaporkan Oleh", "Waktu Input"];
       rows = (dataToExport as StudentSubmission[]).map(s => [
-        s.hari, s.tanggal, s.namaGuru, s.mataPelajaran, s.jamKe, s.keteranganKehadiran, s.submittedBy, s.submittedAt
+        s.hari, s.tanggal, s.kelas || "", s.namaGuru, s.mataPelajaran, s.jamKe, s.keteranganKehadiran, s.submittedBy, s.submittedAt
       ]);
     } else {
-      headers = ["Hari", "Tanggal", "Nama Guru", "Mata Pelajaran", "Jam Ke", "Keterangan Kehadiran", "Keterangan Izin Guru", "Waktu Input"];
+      headers = ["Hari", "Tanggal", "Kelas", "Nama Guru", "Mata Pelajaran", "Jam Ke", "Keterangan Kehadiran", "Keterangan Izin Guru", "Waktu Input"];
       rows = (dataToExport as TeacherLeaveSubmission[]).map(s => [
-        s.hari, s.tanggal, s.namaGuru, s.mataPelajaran, s.jamKe, s.keteranganKehadiran, s.keteranganIzinGuru, s.submittedAt
+        s.hari, s.tanggal, s.kelas || "", s.namaGuru, s.mataPelajaran, s.jamKe, s.keteranganKehadiran, s.keteranganIzinGuru, s.submittedAt
       ]);
     }
 
@@ -1000,6 +1005,7 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
               <thead>
                 <tr className="border-b border-slate-100 text-[10px] font-black uppercase text-slate-400 tracking-wider bg-slate-50/20">
                   <th className="py-4 px-6">Hari / Tanggal</th>
+                  <th className="py-4 px-6">Kelas</th>
                   <th className="py-4 px-6">Nama Guru</th>
                   <th className="py-4 px-6">Mata Pelajaran</th>
                   <th className="py-4 px-6">Jam</th>
@@ -1013,7 +1019,7 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
               <tbody className="divide-y divide-slate-100 text-slate-700">
                 {filteredKelas.length === 0 ? (
                   <tr>
-                    <td colSpan={role === "BK" || role === "TATIB" || role === "UTAMA" || role === "TU" ? 8 : 7} className="py-8 text-center text-xs text-slate-400">
+                    <td colSpan={role === "BK" || role === "TATIB" || role === "UTAMA" || role === "TU" ? 9 : 8} className="py-8 text-center text-xs text-slate-400">
                       Tidak ada laporan kehadiran kelas yang cocok dengan filter.
                     </td>
                   </tr>
@@ -1042,6 +1048,21 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
                             <div>{item.hari}</div>
                             <div className="text-[10px] text-slate-400">{item.tanggal}</div>
                           </>
+                        )}
+                      </td>
+                      <td className="py-3 px-6">
+                        {editingKelasId === item.id ? (
+                          <select
+                            value={editKelas}
+                            onChange={(e) => setEditKelas(e.target.value)}
+                            className="px-2 py-1.5 rounded border border-slate-200 text-xs w-full max-w-[100px] bg-white text-slate-800 font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          >
+                            {KELAS_LIST.map(k => (
+                              <option key={k} value={k}>{k}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded font-bold text-xs">{item.kelas || "-"}</span>
                         )}
                       </td>
                       <td className="py-3 px-6 font-bold text-slate-800">
@@ -1219,6 +1240,7 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
               <thead>
                 <tr className="border-b border-slate-100 text-[10px] font-black uppercase text-slate-400 tracking-wider bg-slate-50/20">
                   <th className="py-4 px-6">Hari / Tanggal</th>
+                  <th className="py-4 px-6">Kelas</th>
                   <th className="py-4 px-6">Nama Guru</th>
                   <th className="py-4 px-6">Mata Pelajaran</th>
                   <th className="py-4 px-6">Jam Ke</th>
@@ -1231,7 +1253,7 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
               <tbody className="divide-y divide-slate-100 text-slate-700">
                 {filteredIzin.length === 0 ? (
                   <tr>
-                    <td colSpan={role === "BK" || role === "UTAMA" || role === "TU" ? 7 : 6} className="py-8 text-center text-xs text-slate-400">
+                    <td colSpan={role === "BK" || role === "UTAMA" || role === "TU" ? 8 : 7} className="py-8 text-center text-xs text-slate-400">
                       Tidak ada laporan izin guru yang terdaftar.
                     </td>
                   </tr>
@@ -1260,6 +1282,21 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
                             <div>{item.hari}</div>
                             <div className="text-[10px] text-slate-400">{item.tanggal}</div>
                           </>
+                        )}
+                      </td>
+                      <td className="py-3 px-6">
+                        {editingIzinId === item.id ? (
+                          <select
+                            value={editKelas}
+                            onChange={(e) => setEditKelas(e.target.value)}
+                            className="px-2 py-1.5 rounded border border-slate-200 text-xs w-full max-w-[100px] bg-white text-slate-800 font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          >
+                            {KELAS_LIST.map(k => (
+                              <option key={k} value={k}>{k}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="bg-amber-50 text-amber-700 px-2 py-1 rounded font-bold text-xs">{item.kelas || "-"}</span>
                         )}
                       </td>
                       <td className="py-3 px-6 font-bold text-slate-800">
