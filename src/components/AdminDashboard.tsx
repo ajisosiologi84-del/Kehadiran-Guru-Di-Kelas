@@ -7,6 +7,7 @@ import { useState, useEffect } from "react";
 import { StudentSubmission, TeacherLeaveSubmission, AdminRole, ScheduleData, KELAS_LIST } from "../types";
 import { FirebaseService } from "../firebase";
 import LaporanPanel from "./LaporanPanel";
+import TeacherPerformancePanel from "./TeacherPerformancePanel";
 
 // @ts-ignore
 import sapaGuruMockup from "../assets/sapa_guru_mockup.svg";
@@ -90,7 +91,7 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
   const [searchTerm, setSearchTerm] = useState("");
   const [filterHari, setFilterHari] = useState("SEMUA");
   const [filterTanggal, setFilterTanggal] = useState("");
-  const [activeTab, setActiveTab] = useState<"KELAS" | "IZIN" | "LAPORAN" | "SYNC" | "PENGATURAN">("KELAS");
+  const [activeTab, setActiveTab] = useState<"KELAS" | "IZIN" | "PERFORMA" | "LAPORAN" | "SYNC" | "PENGATURAN">("KELAS");
 
   // School Settings
   const [tempLogoUrl, setTempLogoUrl] = useState("");
@@ -747,6 +748,17 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
               DATA INPUT IZIN (Guru)
             </button>
             <button
+              onClick={() => setActiveTab("PERFORMA")}
+              id="tab-btn-performa"
+              className={`py-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${
+                activeTab === "PERFORMA"
+                  ? "text-emerald-600 border-emerald-600"
+                  : "text-slate-400 border-transparent hover:text-slate-700"
+              }`}
+            >
+              📊 PERFORMA GURU
+            </button>
+            <button
               onClick={() => setActiveTab("LAPORAN")}
               id="tab-btn-laporan"
               className={`py-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${
@@ -804,7 +816,14 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
         </div>
 
         {/* DATA TABLE */}
-        {activeTab === "LAPORAN" ? (
+        {activeTab === "PERFORMA" ? (
+          <TeacherPerformancePanel
+            submissionsKelas={submissionsKelas}
+            scheduleData={scheduleData}
+            activeTheme={activeTheme}
+            currentThemeKey={currentTheme}
+          />
+        ) : activeTab === "LAPORAN" ? (
           <LaporanPanel
             submissionsKelas={submissionsKelas}
             submissionsIzin={submissionsIzin}
