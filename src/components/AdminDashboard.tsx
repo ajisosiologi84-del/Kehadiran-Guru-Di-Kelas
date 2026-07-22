@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import { StudentSubmission, TeacherLeaveSubmission, AdminRole, ScheduleData, KELAS_LIST } from "../types";
 import { FirebaseService } from "../firebase";
 import LaporanPanel from "./LaporanPanel";
@@ -18,7 +19,7 @@ import {
 import {
   FileSpreadsheet, Filter, Search, RotateCw, Trash2, Calendar, FileText, CheckCircle,
   AlertTriangle, UserX, Printer, Download, MessageSquarePlus, RefreshCw, Layers, BellRing, Phone,
-  Edit, Check, X, ExternalLink
+  Edit, Check, X, ExternalLink, BookOpen, Award, Settings, Users, CheckCircle2, ShieldAlert
 } from "lucide-react";
 
 interface AdminDashboardProps {
@@ -722,85 +723,173 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
       </div>
 
       {/* Tab Data Table Submissions */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden" id="admin-table-panel">
-        <div className="flex border-b border-slate-100 bg-slate-50/50 justify-between items-center px-6 py-2">
-          <div className="flex gap-4">
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden" id="admin-table-panel">
+        <div className="flex flex-col lg:flex-row border-b border-slate-200/80 bg-slate-50/80 justify-between items-stretch lg:items-center p-3 md:p-4 gap-3">
+          {/* Distinct Colored Tabs Bar */}
+          <div className="flex gap-2 overflow-x-auto pb-1 lg:pb-0 scrollbar-none items-center">
+            {/* TAB 1: KELAS */}
             <button
               onClick={() => setActiveTab("KELAS")}
               id="tab-btn-kelas"
-              className={`py-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${
+              className={`relative flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-extrabold transition-all shrink-0 cursor-pointer ${
                 activeTab === "KELAS"
-                  ? "text-blue-600 border-blue-600"
-                  : "text-slate-400 border-transparent hover:text-slate-700"
+                  ? "bg-blue-600 text-white shadow-md shadow-blue-500/20"
+                  : "bg-white text-slate-600 hover:bg-blue-50/80 hover:text-blue-700 border border-slate-200/80"
               }`}
             >
-              DATA INPUT KELAS (Siswa)
+              <BookOpen className={`w-4 h-4 ${activeTab === "KELAS" ? "text-white" : "text-blue-600"}`} />
+              <span>DATA INPUT KELAS (SISWA)</span>
+              <span className={`px-2 py-0.5 text-[10px] font-black rounded-full transition-all ${
+                activeTab === "KELAS" ? "bg-white/20 text-white" : "bg-blue-100 text-blue-800"
+              }`}>
+                {filteredKelas.length}
+              </span>
+              {activeTab === "KELAS" && (
+                <motion.div
+                  layoutId="activeAdminTabBorder"
+                  className="absolute -bottom-1.5 left-2 right-2 h-1 bg-blue-600 rounded-full"
+                  transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                />
+              )}
             </button>
+
+            {/* TAB 2: IZIN */}
             <button
               onClick={() => setActiveTab("IZIN")}
               id="tab-btn-izin"
-              className={`py-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${
+              className={`relative flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-extrabold transition-all shrink-0 cursor-pointer ${
                 activeTab === "IZIN"
-                  ? "text-amber-600 border-amber-600"
-                  : "text-slate-400 border-transparent hover:text-slate-700"
+                  ? "bg-amber-600 text-white shadow-md shadow-amber-500/20"
+                  : "bg-white text-slate-600 hover:bg-amber-50/80 hover:text-amber-700 border border-slate-200/80"
               }`}
             >
-              DATA INPUT IZIN (Guru)
+              <UserX className={`w-4 h-4 ${activeTab === "IZIN" ? "text-white" : "text-amber-600"}`} />
+              <span>DATA INPUT IZIN (GURU)</span>
+              <span className={`px-2 py-0.5 text-[10px] font-black rounded-full transition-all ${
+                activeTab === "IZIN" ? "bg-white/20 text-white" : "bg-amber-100 text-amber-800"
+              }`}>
+                {filteredIzin.length}
+              </span>
+              {activeTab === "IZIN" && (
+                <motion.div
+                  layoutId="activeAdminTabBorder"
+                  className="absolute -bottom-1.5 left-2 right-2 h-1 bg-amber-600 rounded-full"
+                  transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                />
+              )}
             </button>
+
+            {/* TAB 3: PERFORMA GURU */}
             <button
               onClick={() => setActiveTab("PERFORMA")}
               id="tab-btn-performa"
-              className={`py-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${
+              className={`relative flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-extrabold transition-all shrink-0 cursor-pointer ${
                 activeTab === "PERFORMA"
-                  ? "text-emerald-600 border-emerald-600"
-                  : "text-slate-400 border-transparent hover:text-slate-700"
+                  ? "bg-emerald-600 text-white shadow-md shadow-emerald-500/20"
+                  : "bg-white text-slate-600 hover:bg-emerald-50/80 hover:text-emerald-700 border border-slate-200/80"
               }`}
             >
-              📊 PERFORMA GURU
+              <Award className={`w-4 h-4 ${activeTab === "PERFORMA" ? "text-white" : "text-emerald-600"}`} />
+              <span>📊 PERFORMA GURU</span>
+              <span className={`px-2 py-0.5 text-[10px] font-black rounded-full transition-all ${
+                activeTab === "PERFORMA" ? "bg-white/20 text-white" : "bg-emerald-100 text-emerald-800"
+              }`}>
+                Analisis
+              </span>
+              {activeTab === "PERFORMA" && (
+                <motion.div
+                  layoutId="activeAdminTabBorder"
+                  className="absolute -bottom-1.5 left-2 right-2 h-1 bg-emerald-600 rounded-full"
+                  transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                />
+              )}
             </button>
+
+            {/* TAB 4: LAPORAN */}
             <button
               onClick={() => setActiveTab("LAPORAN")}
               id="tab-btn-laporan"
-              className={`py-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${
+              className={`relative flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-extrabold transition-all shrink-0 cursor-pointer ${
                 activeTab === "LAPORAN"
-                  ? `${activeTheme.accentText} ${activeTheme.borderActive}`
-                  : "text-slate-400 border-transparent hover:text-slate-700"
+                  ? "bg-purple-600 text-white shadow-md shadow-purple-500/20"
+                  : "bg-white text-slate-600 hover:bg-purple-50/80 hover:text-purple-700 border border-slate-200/80"
               }`}
             >
-              📋 CETAK & LAPORAN
+              <FileSpreadsheet className={`w-4 h-4 ${activeTab === "LAPORAN" ? "text-white" : "text-purple-600"}`} />
+              <span>📋 CETAK & LAPORAN</span>
+              <span className={`px-2 py-0.5 text-[10px] font-black rounded-full transition-all ${
+                activeTab === "LAPORAN" ? "bg-white/20 text-white" : "bg-purple-100 text-purple-800"
+              }`}>
+                Rekap
+              </span>
+              {activeTab === "LAPORAN" && (
+                <motion.div
+                  layoutId="activeAdminTabBorder"
+                  className="absolute -bottom-1.5 left-2 right-2 h-1 bg-purple-600 rounded-full"
+                  transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                />
+              )}
             </button>
+
+            {/* TAB 5: SYNC GSHEET */}
             <button
               onClick={() => setActiveTab("SYNC")}
               id="tab-btn-sync"
-              className={`py-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${
+              className={`relative flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-extrabold transition-all shrink-0 cursor-pointer ${
                 activeTab === "SYNC"
-                  ? "text-indigo-600 border-indigo-600"
-                  : "text-slate-400 border-transparent hover:text-slate-700"
+                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/20"
+                  : "bg-white text-slate-600 hover:bg-indigo-50/80 hover:text-indigo-700 border border-slate-200/80"
               }`}
             >
-              SINKRONISASI GSHEET (Otomatis)
+              <RefreshCw className={`w-4 h-4 ${activeTab === "SYNC" ? "text-white" : "text-indigo-600"}`} />
+              <span>SINKRONISASI GSHEET</span>
+              <span className={`px-2 py-0.5 text-[10px] font-black rounded-full transition-all ${
+                appsScriptUrl
+                  ? activeTab === "SYNC" ? "bg-white/20 text-white" : "bg-emerald-100 text-emerald-800"
+                  : activeTab === "SYNC" ? "bg-white/20 text-white" : "bg-amber-100 text-amber-800"
+              }`}>
+                {appsScriptUrl ? "Terhubung" : "Offline"}
+              </span>
+              {activeTab === "SYNC" && (
+                <motion.div
+                  layoutId="activeAdminTabBorder"
+                  className="absolute -bottom-1.5 left-2 right-2 h-1 bg-indigo-600 rounded-full"
+                  transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                />
+              )}
             </button>
+
+            {/* TAB 6: PENGATURAN SEKOLAH (Utama Only) */}
             {role === "UTAMA" && (
               <button
                 onClick={() => setActiveTab("PENGATURAN")}
                 id="tab-btn-pengaturan"
-                className={`py-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${
+                className={`relative flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-extrabold transition-all shrink-0 cursor-pointer ${
                   activeTab === "PENGATURAN"
-                    ? "text-purple-600 border-purple-600"
-                    : "text-slate-400 border-transparent hover:text-slate-700"
+                    ? "bg-rose-600 text-white shadow-md shadow-rose-500/20"
+                    : "bg-white text-slate-600 hover:bg-rose-50/80 hover:text-rose-700 border border-slate-200/80"
                 }`}
               >
-                PENGATURAN SEKOLAH
+                <Settings className={`w-4 h-4 ${activeTab === "PENGATURAN" ? "text-white" : "text-rose-600"}`} />
+                <span>PENGATURAN SEKOLAH</span>
+                {activeTab === "PENGATURAN" && (
+                  <motion.div
+                    layoutId="activeAdminTabBorder"
+                    className="absolute -bottom-1.5 left-2 right-2 h-1 bg-rose-600 rounded-full"
+                    transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                  />
+                )}
               </button>
             )}
           </div>
 
-          <div className="flex gap-2">
+          {/* Action Buttons Right Side */}
+          <div className="flex gap-2 shrink-0 items-center justify-end">
             {role === "TU" && (
               <button
                 onClick={() => window.print()}
                 id="btn-print"
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg transition-all"
+                className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white rounded-xl shadow-xs transition-all cursor-pointer hover:scale-[1.02]"
               >
                 <Printer className="w-3.5 h-3.5" /> Cetak Rekap
               </button>
@@ -808,32 +897,97 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
             <button
               onClick={handleDownloadCSV}
               id="btn-download-csv"
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg transition-all"
+              className="flex items-center gap-2 px-4 py-2.5 text-xs font-black bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl shadow-md shadow-emerald-600/20 hover:shadow-lg hover:shadow-emerald-600/30 transition-all cursor-pointer transform hover:-translate-y-0.5 active:translate-y-0 border border-emerald-400/30"
+              title="Ekspor Seluruh Data Kehadiran ke Format CSV"
             >
-              <Download className="w-3.5 h-3.5" /> Ekspor CSV
+              <Download className="w-4 h-4 shrink-0" />
+              <span>Ekspor CSV</span>
             </button>
           </div>
         </div>
 
-        {/* DATA TABLE */}
-        {activeTab === "PERFORMA" ? (
-          <TeacherPerformancePanel
-            submissionsKelas={submissionsKelas}
-            scheduleData={scheduleData}
-            activeTheme={activeTheme}
-            currentThemeKey={currentTheme}
-          />
-        ) : activeTab === "LAPORAN" ? (
-          <LaporanPanel
-            submissionsKelas={submissionsKelas}
-            submissionsIzin={submissionsIzin}
-            activeTheme={activeTheme}
-            currentThemeKey={currentTheme}
-          />
-        ) : (
-          <div className="overflow-x-auto">
-            {activeTab === "PENGATURAN" && role === "UTAMA" ? (
-            <div className="p-6 max-w-2xl mx-auto space-y-8" id="panel-pengaturan-utama">
+        {/* Distinct Active View Indicator Banner */}
+        <div className="px-4 md:px-6 pt-4 pb-2">
+          <div className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs transition-all ${
+            activeTab === "KELAS" ? "bg-blue-50/90 border-blue-200 text-blue-900" :
+            activeTab === "IZIN" ? "bg-amber-50/90 border-amber-200 text-amber-900" :
+            activeTab === "PERFORMA" ? "bg-emerald-50/90 border-emerald-200 text-emerald-900" :
+            activeTab === "LAPORAN" ? "bg-purple-50/90 border-purple-200 text-purple-900" :
+            activeTab === "SYNC" ? "bg-indigo-50/90 border-indigo-200 text-indigo-900" :
+            "bg-rose-50/90 border-rose-200 text-rose-900"
+          }`}>
+            <div className="flex items-center gap-2.5 font-extrabold">
+              <span className={`p-1.5 rounded-lg text-white font-black text-xs shrink-0 ${
+                activeTab === "KELAS" ? "bg-blue-600" :
+                activeTab === "IZIN" ? "bg-amber-600" :
+                activeTab === "PERFORMA" ? "bg-emerald-600" :
+                activeTab === "LAPORAN" ? "bg-purple-600" :
+                activeTab === "SYNC" ? "bg-indigo-600" :
+                "bg-rose-600"
+              }`}>
+                {activeTab === "KELAS" && <BookOpen className="w-4 h-4" />}
+                {activeTab === "IZIN" && <UserX className="w-4 h-4" />}
+                {activeTab === "PERFORMA" && <Award className="w-4 h-4" />}
+                {activeTab === "LAPORAN" && <FileSpreadsheet className="w-4 h-4" />}
+                {activeTab === "SYNC" && <RefreshCw className="w-4 h-4" />}
+                {activeTab === "PENGATURAN" && <Settings className="w-4 h-4" />}
+              </span>
+              <div>
+                <span className="font-black tracking-wide uppercase text-[11px] block sm:inline">
+                  {activeTab === "KELAS" && "Halaman Input Kelas (Siswa)"}
+                  {activeTab === "IZIN" && "Halaman Input Izin Guru"}
+                  {activeTab === "PERFORMA" && "Analisis Performa & Disiplin Guru"}
+                  {activeTab === "LAPORAN" && "Cetak & Rekap Laporan Bulanan"}
+                  {activeTab === "SYNC" && "Integrasi Google Spreadsheet Real-Time"}
+                  {activeTab === "PENGATURAN" && "Pengaturan Identitas & Logo Sekolah"}
+                </span>
+                <span className="text-[10px] opacity-80 block font-medium">
+                  {activeTab === "KELAS" && `Menampilkan ${filteredKelas.length} data laporan dari Admin Kelas (perwakilan siswa)`}
+                  {activeTab === "IZIN" && `Menampilkan ${filteredIzin.length} data laporan permohonan izin mengajar guru`}
+                  {activeTab === "PERFORMA" && "Statistik persentase kehadiran mengajar dan tingkat keaktifan guru di kelas"}
+                  {activeTab === "LAPORAN" && "Generasi dokumen resmi untuk arsip kurikulum, tata tertib, dan kepala sekolah"}
+                  {activeTab === "SYNC" && (appsScriptUrl ? "Status Google Apps Script: Terhubung Aktif ✓" : "Status: Menunggu konfigurasi Web App URL")}
+                  {activeTab === "PENGATURAN" && "Penyesuaian nama instansi, logo sekolah, dan teks informasi umum"}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0 text-[10px] self-end sm:self-auto">
+              <span className="font-bold opacity-75">Visual Active View:</span>
+              <span className="font-black px-2.5 py-0.5 rounded-full bg-white/90 border border-current shadow-2xs">
+                {activeTab}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* DATA TABLE ANIMATED CONTENT WRAPPER */}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, y: 12, scale: 0.995 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -12, scale: 0.995 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+          >
+            {activeTab === "PERFORMA" ? (
+              <TeacherPerformancePanel
+                submissionsKelas={submissionsKelas}
+                scheduleData={scheduleData}
+                activeTheme={activeTheme}
+                currentThemeKey={currentTheme}
+              />
+            ) : activeTab === "LAPORAN" ? (
+              <LaporanPanel
+                submissionsKelas={submissionsKelas}
+                submissionsIzin={submissionsIzin}
+                activeTheme={activeTheme}
+                currentThemeKey={currentTheme}
+              />
+            ) : (
+              <div className="overflow-x-auto">
+                {activeTab === "PENGATURAN" && role === "UTAMA" ? (
+                <div className="p-6 max-w-2xl mx-auto space-y-8" id="panel-pengaturan-utama">
               {/* Card Header */}
               <div className="p-5 rounded-xl border bg-purple-50/50 border-purple-100 flex items-start gap-4">
                 <span className="text-2xl">⚙️</span>
@@ -1457,6 +1611,8 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
           )}
         </div>
         )}
+          </motion.div>
+        </AnimatePresence>
       </div>
 
       {/* Role-specific instructions footer */}
