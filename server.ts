@@ -840,19 +840,21 @@ initApp();
   });
 
   // API: Get reference schedule data
-  app.get("/api/schedule", (req, res) => {
-    // Non-blocking background sync if cache hasn't synced yet
-    if (cachedScheduleData.lastSync === "Never (Using Fallback)") {
-      loadCachedScheduleFromFirestore().then(async () => {
+  app.get("/api/schedule", async (req, res) => {
+    try {
+      if (cachedScheduleData.lastSync === "Never (Using Fallback)") {
+        await loadCachedScheduleFromFirestore();
         if (cachedScheduleData.lastSync === "Never (Using Fallback)") {
-          console.log("No schedule in Firestore, syncing live from Sheets in background...");
-          syncWithGoogleSheet().then(saveCachedScheduleToFirestore).catch(err => {
-            console.error("Background sync error:", err?.message || err);
-          });
+          console.log("No schedule in Firestore, syncing live from Sheets...");
+          await syncWithGoogleSheet();
+          await saveCachedScheduleToFirestore();
         }
-      }).catch(() => {});
+      }
+      res.json(cachedScheduleData);
+    } catch (err: any) {
+      console.error("Error fetching schedule:", err?.message || err);
+      res.json(cachedScheduleData);
     }
-    res.json(cachedScheduleData);
   });
 
   // API: Get App Settings
@@ -981,7 +983,12 @@ initApp();
 
   // API: Get Student Class Submissions
   app.get("/api/submissions/kelas", async (req, res) => {
-    const data = await loadSubmissionsKelas();
+    let data = await loadSubmissionsKelas();
+    if (!data || data.length === 0) {
+      console.log("Submissions kelas is empty, syncing live from Sheets...");
+      await syncWithGoogleSheet();
+      data = await loadSubmissionsKelas();
+    }
     res.json(data);
   });
 
@@ -1097,7 +1104,12 @@ initApp();
 
   // API: Get Teacher Leave Submissions
   app.get("/api/submissions/izin", async (req, res) => {
-    const data = await loadSubmissionsIzin();
+    let data = await loadSubmissionsIzin();
+    if (!data || data.length === 0) {
+      console.log("Submissions izin is empty, syncing live from Sheets...");
+      await syncWithGoogleSheet();
+      data = await loadSubmissionsIzin();
+    }
     res.json(data);
   });
 

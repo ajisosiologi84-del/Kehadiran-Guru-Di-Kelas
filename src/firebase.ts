@@ -415,7 +415,9 @@ export const FirebaseService = {
         querySnapshot.forEach((docSnap) => {
           list.push(docSnap.data());
         });
-        return list.sort((a, b) => new Date(a.submittedAt || 0).getTime() - new Date(b.submittedAt || 0).getTime());
+        if (list.length > 0) {
+          return list.sort((a, b) => new Date(a.submittedAt || 0).getTime() - new Date(b.submittedAt || 0).getTime());
+        }
       } catch (err) {
         logAndCatchFirestoreError(err, OperationType.LIST, pathStr);
       }
@@ -426,7 +428,7 @@ export const FirebaseService = {
       const res = await fetch("/api/submissions/kelas");
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data)) {
+        if (Array.isArray(data) && data.length > 0) {
           localStorage.setItem("presence_submissions_kelas", JSON.stringify(data));
           return data;
         }
@@ -651,7 +653,9 @@ export const FirebaseService = {
         querySnapshot.forEach((docSnap) => {
           list.push(docSnap.data());
         });
-        return list.sort((a, b) => new Date(a.submittedAt || 0).getTime() - new Date(b.submittedAt || 0).getTime());
+        if (list.length > 0) {
+          return list.sort((a, b) => new Date(a.submittedAt || 0).getTime() - new Date(b.submittedAt || 0).getTime());
+        }
       } catch (err) {
         logAndCatchFirestoreError(err, OperationType.LIST, pathStr);
       }
@@ -662,7 +666,7 @@ export const FirebaseService = {
       const res = await fetch("/api/submissions/izin");
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data)) {
+        if (Array.isArray(data) && data.length > 0) {
           localStorage.setItem("presence_submissions_izin", JSON.stringify(data));
           return data;
         }
