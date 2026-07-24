@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
 import {
   initializeFirestore,
+  setLogLevel,
   doc,
   getDoc,
   getDocs,
@@ -84,6 +85,10 @@ const SHEETS_URL = "https://docs.google.com/spreadsheets/d/1I-L5m4C7jOK-3y2hKnzh
 let app: any = null;
 let db: any = null;
 let firebaseActive = false;
+
+try {
+  setLogLevel("error");
+} catch (e) {}
 
 try {
   if (firebaseConfigImport && firebaseConfigImport.apiKey) {

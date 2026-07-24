@@ -7,7 +7,7 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { initializeApp } from "firebase/app";
-import { initializeFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs } from "firebase/firestore";
+import { initializeFirestore, setLogLevel, doc, getDoc, setDoc, deleteDoc, collection, getDocs } from "firebase/firestore";
 
 // Read firebase-applet-config.json safely using fs to prevent ESM JSON runtime import errors in Node.js / Vercel
 let firebaseConfigImport: any = null;
@@ -28,6 +28,10 @@ const fallbackSubmissionsIzin: any[] = [];
 let firebaseApp: any = null;
 let db: any = null;
 let firebaseActive = false;
+
+try {
+  setLogLevel("error");
+} catch (e) {}
 
 try {
   let firebaseConfig: any = firebaseConfigImport;
