@@ -182,6 +182,12 @@ function parseCSVLine(line: string): string[] {
   return result;
 }
 
+function extractSpreadsheetId(url: string): string | null {
+  if (!url) return null;
+  const match = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+  return match ? match[1] : null;
+}
+
 // In-Memory cache for Schedule
 let cachedScheduleData = {
   namaGuruList: FALLBACK_NAMA_GURU,
@@ -194,120 +200,248 @@ let cachedScheduleData = {
 // Function to fetch and parse spreadsheet data
 async function syncWithGoogleSheet() {
   try {
-    console.log("Checking if Google Apps Script URL is configured for schedule sync...");
+    console.log("Starting Google Sheet sync process...");
     const settings = await loadSettings();
-    if (settings.appsScriptUrl) {
-      const trimmedUrl = settings.appsScriptUrl.trim();
-      if (trimmedUrl && !trimmedUrl.includes("docs.google.com/spreadsheets")) {
-        console.log("Syncing schedule and class admins via Apps Script Web App...");
-        try {
-          // Try GET first as Apps Script handles GET redirects seamlessly
-          const getUrl = `${trimmedUrl}${trimmedUrl.includes('?') ? '&' : '?'}action=get_schedule`;
-          let response = await fetchWithTimeout(getUrl, { method: "GET", redirect: "follow" }, 15000).catch(() => null);
+    const rawUrl = settings.appsScriptUrl ? settings.appsScriptUrl.trim() : "";
 
-          // Fallback to POST if GET fails
-          if (!response || !response.ok) {
-            response = await fetchWithTimeout(trimmedUrl, {
-              method: "POST",
-              headers: { "Content-Type": "text/plain;charset=utf-8" },
-              body: JSON.stringify({ action: "get_schedule" }),
-              redirect: "follow"
-            }, 15000).catch(() => null);
-          }
+    let fetchedSchedule: any = null;
+    let fetchedKelasSubmissions: any[] = [];
+    let fetchedIzinSubmissions: any[] = [];
 
-          if (response && response.ok) {
-            const text = await response.text();
-            if (!text.trim().startsWith("<!DOCTYPE") && !text.trim().startsWith("<html")) {
-              const result = JSON.parse(text);
-              if (result && result.namaGuruList && result.namaGuruList.length > 0) {
-                cachedScheduleData = {
-                  namaGuruList: result.namaGuruList,
-                  mataPelajaranList: result.mataPelajaranList && result.mataPelajaranList.length > 0 ? result.mataPelajaranList : FALLBACK_MATA_PELAJARAN,
-                  jamKeList: result.jamKeList && result.jamKeList.length > 0 ? result.jamKeList : FALLBACK_JAM_KE,
-                  classAdmins: result.classAdmins && Object.keys(result.classAdmins).length > 0 ? result.classAdmins : FALLBACK_CLASS_ADMINS,
-                  lastSync: new Date().toISOString()
-                };
-                console.log("Successfully synced schedule and class admins via Apps Script Web App!");
-                return;
-              } else {
-                console.log("Apps Script output missing namaGuruList, falling back to direct spreadsheet CSV.");
+    // Mode 1: Apps Script Web App
+    if (rawUrl && (rawUrl.includes("script.google.com") || rawUrl.endsWith("/exec"))) {
+      console.log("Syncing via Apps Script Web App URL...");
+      try {
+        const getUrl = `${rawUrl}${rawUrl.includes('?') ? '&' : '?'}action=get_all`;
+        let response = await fetchWithTimeout(getUrl, { method: "GET", redirect: "follow" }, 15000).catch(() => null);
+
+        if (!response || !response.ok) {
+          response = await fetchWithTimeout(rawUrl, {
+            method: "POST",
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
+            body: JSON.stringify({ action: "get_all" }),
+            redirect: "follow"
+          }, 15000).catch(() => null);
+        }
+
+        if (response && response.ok) {
+          const text = await response.text();
+          if (!text.trim().startsWith("<!DOCTYPE") && !text.trim().startsWith("<html")) {
+            const result = JSON.parse(text);
+            if (result && result.namaGuruList && result.namaGuruList.length > 0) {
+              fetchedSchedule = {
+                namaGuruList: result.namaGuruList,
+                mataPelajaranList: result.mataPelajaranList && result.mataPelajaranList.length > 0 ? result.mataPelajaranList : FALLBACK_MATA_PELAJARAN,
+                jamKeList: result.jamKeList && result.jamKeList.length > 0 ? result.jamKeList : FALLBACK_JAM_KE,
+                classAdmins: result.classAdmins && Object.keys(result.classAdmins).length > 0 ? result.classAdmins : FALLBACK_CLASS_ADMINS,
+                lastSync: new Date().toISOString()
+              };
+              if (Array.isArray(result.kelasData) && result.kelasData.length > 0) {
+                fetchedKelasSubmissions = result.kelasData;
               }
-            } else {
-              console.log("Apps Script returned HTML, falling back to direct spreadsheet CSV.");
+              if (Array.isArray(result.izinData) && result.izinData.length > 0) {
+                fetchedIzinSubmissions = result.izinData;
+              }
+              console.log("Successfully fetched schedule and submissions from Apps Script!");
             }
-          } else {
-            console.log(`Apps Script schedule sync request failed, falling back to direct CSV.`);
           }
-        } catch (scriptErr: any) {
-          console.log("Failed to fetch from Apps Script Web App, falling back to direct spreadsheet CSV:", scriptErr.message);
+        }
+      } catch (err: any) {
+        console.warn("Apps Script sync attempt failed:", err.message);
+      }
+    }
+
+    // Mode 2: Google Spreadsheet direct link OR fallback CSV
+    const spreadsheetId = extractSpreadsheetId(rawUrl) || extractSpreadsheetId(SHEETS_URL) || "1I-L5m4C7jOK-3y2hKnzhQEb9GDFzqot7YylhvooC7AM";
+
+    if (!fetchedSchedule) {
+      console.log(`Fetching schedule CSV directly from Spreadsheet ID: ${spreadsheetId}...`);
+      const mainCsvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=DATA_UTAMA`;
+      try {
+        const response = await fetchWithTimeout(mainCsvUrl, {}, 15000);
+        if (response.ok) {
+          const text = await response.text();
+          const lines = text.split(/\r?\n/);
+          if (lines.length > 1) {
+            const namaGuruSet = new Set<string>();
+            const mataPelajaranSet = new Set<string>();
+            const jamKeSet = new Set<string>();
+            const classAdminsMap: Record<string, string> = {};
+
+            for (let i = 1; i < lines.length; i++) {
+              if (!lines[i].trim()) continue;
+              const columns = parseCSVLine(lines[i]);
+              if (columns[2]) {
+                const val = columns[2].replace(/^"|"$/g, '').trim();
+                if (val) namaGuruSet.add(val);
+              }
+              if (columns[3]) {
+                const val = columns[3].replace(/^"|"$/g, '').trim();
+                if (val) mataPelajaranSet.add(val);
+              }
+              if (columns[4]) {
+                const val = columns[4].replace(/^"|"$/g, '').trim();
+                if (val) jamKeSet.add(val);
+              }
+              if (columns[6]) {
+                const username = columns[6].replace(/^"|"$/g, '').trim().toLowerCase();
+                const password = columns[7] ? columns[7].replace(/^"|"$/g, '').trim() : "adminkelas2026";
+                if (username) classAdminsMap[username] = password;
+              }
+            }
+
+            if (namaGuruSet.size > 0) {
+              fetchedSchedule = {
+                namaGuruList: Array.from(namaGuruSet),
+                mataPelajaranList: mataPelajaranSet.size > 0 ? Array.from(mataPelajaranSet) : FALLBACK_MATA_PELAJARAN,
+                jamKeList: jamKeSet.size > 0 ? Array.from(jamKeSet) : FALLBACK_JAM_KE,
+                classAdmins: Object.keys(classAdminsMap).length > 0 ? classAdminsMap : FALLBACK_CLASS_ADMINS,
+                lastSync: new Date().toISOString()
+              };
+              console.log("Successfully parsed DATA_UTAMA schedule from Spreadsheet CSV.");
+            }
+          }
+        }
+      } catch (err: any) {
+        console.warn("Failed to fetch DATA_UTAMA CSV:", err.message);
+      }
+    }
+
+    // Always attempt CSV fetch for Submissions if Apps Script didn't provide them
+    if (fetchedKelasSubmissions.length === 0) {
+      const trySheetsSiswa = ["DATA_INPUT_SISWA", "DATA_INPUT_KELAS"];
+      for (const sheetName of trySheetsSiswa) {
+        const siswaCsvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=${sheetName}`;
+        try {
+          const resSiswa = await fetchWithTimeout(siswaCsvUrl, {}, 10000);
+          if (resSiswa.ok) {
+            const textSiswa = await resSiswa.text();
+            if (!textSiswa.trim().startsWith("<!DOCTYPE") && !textSiswa.trim().startsWith("<html")) {
+              const linesS = textSiswa.split(/\r?\n/);
+              if (linesS.length > 1) {
+                for (let i = 1; i < linesS.length; i++) {
+                  if (!linesS[i].trim()) continue;
+                  const cols = parseCSVLine(linesS[i]);
+                  const id = cols[0] ? cols[0].replace(/^"|"$/g, '').trim() : "";
+                  const hari = cols[1] ? cols[1].replace(/^"|"$/g, '').trim() : "";
+                  const tanggal = cols[2] ? cols[2].replace(/^"|"$/g, '').trim() : "";
+                  const kelas = cols[3] ? cols[3].replace(/^"|"$/g, '').trim() : "";
+                  const namaGuru = cols[4] ? cols[4].replace(/^"|"$/g, '').trim() : "";
+                  const mataPelajaran = cols[5] ? cols[5].replace(/^"|"$/g, '').trim() : "";
+                  const jamKe = cols[6] ? cols[6].replace(/^"|"$/g, '').trim() : "1";
+                  const keteranganKehadiran = cols[7] ? cols[7].replace(/^"|"$/g, '').trim() : "Hadir";
+                  const submittedBy = cols[8] ? cols[8].replace(/^"|"$/g, '').trim() : "Google Sheet";
+                  const submittedAt = cols[9] ? cols[9].replace(/^"|"$/g, '').trim() : new Date().toISOString();
+
+                  if (namaGuru && namaGuru.toLowerCase() !== "nama guru") {
+                    fetchedKelasSubmissions.push({
+                      id: id || "gs_" + Math.random().toString(36).substring(2, 9),
+                      hari: hari || "Senin",
+                      tanggal: tanggal || new Date().toISOString().split("T")[0],
+                      kelas: kelas || "-",
+                      namaGuru,
+                      mataPelajaran: mataPelajaran || "-",
+                      jamKe: jamKe || "1",
+                      keteranganKehadiran,
+                      submittedBy,
+                      submittedAt
+                    });
+                  }
+                }
+                if (fetchedKelasSubmissions.length > 0) break;
+              }
+            }
+          }
+        } catch (e: any) {
+          console.warn(`Failed to fetch ${sheetName} CSV:`, e.message);
         }
       }
     }
 
-    console.log("Fetching live data from Google Sheet CSV directly...");
-    const response = await fetchWithTimeout(SHEETS_URL, {}, 15000); // 15s timeout for CSV download
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    const text = await response.text();
-    const lines = text.split(/\r?\n/);
-    if (lines.length <= 1) {
-      throw new Error("Empty CSV or invalid format received from Google Sheets");
-    }
+    if (fetchedIzinSubmissions.length === 0) {
+      const izinCsvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=DATA_INPUT_IZIN_GURU`;
+      try {
+        const resIzin = await fetchWithTimeout(izinCsvUrl, {}, 10000);
+        if (resIzin.ok) {
+          const textIzin = await resIzin.text();
+          if (!textIzin.trim().startsWith("<!DOCTYPE") && !textIzin.trim().startsWith("<html")) {
+            const linesI = textIzin.split(/\r?\n/);
+            if (linesI.length > 1) {
+              for (let i = 1; i < linesI.length; i++) {
+                if (!linesI[i].trim()) continue;
+                const cols = parseCSVLine(linesI[i]);
+                const id = cols[0] ? cols[0].replace(/^"|"$/g, '').trim() : "";
+                const hari = cols[1] ? cols[1].replace(/^"|"$/g, '').trim() : "";
+                const tanggal = cols[2] ? cols[2].replace(/^"|"$/g, '').trim() : "";
+                const kelas = cols[3] ? cols[3].replace(/^"|"$/g, '').trim() : "";
+                const namaGuru = cols[4] ? cols[4].replace(/^"|"$/g, '').trim() : "";
+                const mataPelajaran = cols[5] ? cols[5].replace(/^"|"$/g, '').trim() : "";
+                const jamKe = cols[6] ? cols[6].replace(/^"|"$/g, '').trim() : "1";
+                const keteranganKehadiran = cols[7] ? cols[7].replace(/^"|"$/g, '').trim() : "Izin";
+                const keteranganIzinGuru = cols[8] ? cols[8].replace(/^"|"$/g, '').trim() : "-";
+                const submittedAt = cols[9] ? cols[9].replace(/^"|"$/g, '').trim() : new Date().toISOString();
 
-    const namaGuruSet = new Set<string>();
-    const mataPelajaranSet = new Set<string>();
-    const jamKeSet = new Set<string>();
-    const classAdminsMap: Record<string, string> = {};
-
-    // First line is header
-    for (let i = 1; i < lines.length; i++) {
-      if (!lines[i].trim()) continue;
-      const columns = parseCSVLine(lines[i]);
-      
-      // Col 2: Nama Guru
-      if (columns[2]) {
-        // Strip quotes if any
-        const val = columns[2].replace(/^"|"$/g, '').trim();
-        if (val) namaGuruSet.add(val);
-      }
-      // Col 3: Mata Pelajaran
-      if (columns[3]) {
-        const val = columns[3].replace(/^"|"$/g, '').trim();
-        if (val) mataPelajaranSet.add(val);
-      }
-      // Col 4: Jam Ke
-      if (columns[4]) {
-        const val = columns[4].replace(/^"|"$/g, '').trim();
-        if (val) jamKeSet.add(val);
-      }
-      // Col 6: Username, Col 7: Password
-      if (columns[6]) {
-        const username = columns[6].replace(/^"|"$/g, '').trim().toLowerCase();
-        const password = columns[7] ? columns[7].replace(/^"|"$/g, '').trim() : "adminkelas2026";
-        if (username) {
-          classAdminsMap[username] = password;
+                if (namaGuru && namaGuru.toLowerCase() !== "nama guru") {
+                  fetchedIzinSubmissions.push({
+                    id: id || "gsi_" + Math.random().toString(36).substring(2, 9),
+                    hari: hari || "Senin",
+                    tanggal: tanggal || new Date().toISOString().split("T")[0],
+                    kelas: kelas || "-",
+                    namaGuru,
+                    mataPelajaran: mataPelajaran || "-",
+                    jamKe: jamKe || "1",
+                    keteranganKehadiran,
+                    keteranganIzinGuru,
+                    submittedAt
+                  });
+                }
+              }
+            }
+          }
         }
+      } catch (e: any) {
+        console.warn("Failed to fetch DATA_INPUT_IZIN_GURU CSV:", e.message);
       }
     }
 
-    // Update Cache if we got valid lists
-    if (namaGuruSet.size > 0) {
-      cachedScheduleData = {
-        namaGuruList: Array.from(namaGuruSet),
-        mataPelajaranList: mataPelajaranSet.size > 0 ? Array.from(mataPelajaranSet) : FALLBACK_MATA_PELAJARAN,
-        jamKeList: jamKeSet.size > 0 ? Array.from(jamKeSet) : FALLBACK_JAM_KE,
-        classAdmins: Object.keys(classAdminsMap).length > 0 ? classAdminsMap : FALLBACK_CLASS_ADMINS,
-        lastSync: new Date().toISOString()
-      };
-      console.log("Successfully synced Google Sheet data via CSV fallback!");
-      console.log(`Teachers loaded: ${cachedScheduleData.namaGuruList.length}`);
-      console.log(`Class Admins loaded: ${Object.keys(cachedScheduleData.classAdmins).length}`);
-    } else {
-      console.warn("Parsed 0 teachers from Google Sheets. Keeping fallback data.");
+    // Save Schedule Cache
+    if (fetchedSchedule) {
+      cachedScheduleData = fetchedSchedule;
+      await saveCachedScheduleToFirestore();
     }
+
+    // Merge & Save Submissions Kelas
+    if (fetchedKelasSubmissions.length > 0) {
+      const existingKelas = await loadSubmissionsKelas();
+      const map = new Map<string, any>();
+      for (const item of existingKelas) {
+        if (item.id) map.set(item.id, item);
+      }
+      for (const item of fetchedKelasSubmissions) {
+        if (item.id) map.set(item.id, item);
+      }
+      const updatedKelas = Array.from(map.values()).sort((a, b) => new Date(a.submittedAt || 0).getTime() - new Date(b.submittedAt || 0).getTime());
+      await saveSubmissionsKelas(updatedKelas);
+      console.log(`Merged ${fetchedKelasSubmissions.length} class submissions from Google Sheets (Total: ${updatedKelas.length}).`);
+    }
+
+    // Merge & Save Submissions Izin
+    if (fetchedIzinSubmissions.length > 0) {
+      const existingIzin = await loadSubmissionsIzin();
+      const map = new Map<string, any>();
+      for (const item of existingIzin) {
+        if (item.id) map.set(item.id, item);
+      }
+      for (const item of fetchedIzinSubmissions) {
+        if (item.id) map.set(item.id, item);
+      }
+      const updatedIzin = Array.from(map.values()).sort((a, b) => new Date(a.submittedAt || 0).getTime() - new Date(b.submittedAt || 0).getTime());
+      await saveSubmissionsIzin(updatedIzin);
+      console.log(`Merged ${fetchedIzinSubmissions.length} teacher leave submissions from Google Sheets (Total: ${updatedIzin.length}).`);
+    }
+
   } catch (err: any) {
-    console.error("Error syncing with Google Sheets, using fallback or previous cache:", err.message);
+    console.error("Error in syncWithGoogleSheet:", err.message);
   }
 }
 
@@ -458,7 +592,7 @@ async function saveCachedScheduleToFirestore() {
   }
 }
 
-async function asyncPushToSheets(action: "add" | "edit" | "delete", type: "kelas" | "izin", payload: any) {
+async function asyncPushToSheets(action: "add" | "edit" | "delete" | "sync_all", type: "kelas" | "izin", payload: any) {
   const settings = await loadSettings();
   if (!settings.appsScriptUrl) {
     console.log("Apps Script URL not configured, skipping sheet sync.");
@@ -656,7 +790,8 @@ async function saveSubmissionsIzin(data: any[]) {
 const app = express();
 const PORT = 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 // Initialize data files & load firebase cache on server startup (non-blocking to prevent startup timeouts in serverless environments like Vercel)
 function initApp() {
@@ -876,6 +1011,50 @@ initApp();
     await asyncPushToSheets("add", "kelas", newRecord);
 
     res.status(201).json({ success: true, data: newRecord });
+  });
+
+  // API: Bulk Import / Restore Student Class Submissions (DATA_INPUT_SISWA)
+  app.post("/api/submissions/kelas/bulk", async (req, res) => {
+    const { records, mode } = req.body; // mode: 'merge' | 'overwrite'
+    if (!Array.isArray(records)) {
+      return res.status(400).json({ success: false, error: "Data records harus berupa array" });
+    }
+
+    const current = await loadSubmissionsKelas();
+    let finalList: any[] = [];
+
+    if (mode === "overwrite") {
+      finalList = records;
+    } else {
+      const existingMap = new Map(current.map((item: any) => [item.id, item]));
+      records.forEach((rec: any) => {
+        if (rec && rec.id) {
+          existingMap.set(rec.id, rec);
+        }
+      });
+      finalList = Array.from(existingMap.values());
+    }
+
+    await saveSubmissionsKelas(finalList);
+
+    // Optionally push bulk update to Apps Script if configured
+    await asyncPushToSheets("sync_all", "kelas", finalList);
+
+    res.json({ success: true, count: finalList.length, data: finalList });
+  });
+
+  // API: Delete All Student Class Submissions
+  app.delete("/api/submissions/kelas/all", async (req, res) => {
+    await saveSubmissionsKelas([]);
+    await asyncPushToSheets("sync_all", "kelas", []);
+    res.json({ success: true, count: 0 });
+  });
+
+  // API: Delete All Teacher Leave Submissions
+  app.delete("/api/submissions/izin/all", async (req, res) => {
+    await saveSubmissionsIzin([]);
+    await asyncPushToSheets("sync_all", "izin", []);
+    res.json({ success: true, count: 0 });
   });
 
   // API: Delete Student Class Submission

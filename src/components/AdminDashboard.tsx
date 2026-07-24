@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, ChangeEvent } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { StudentSubmission, TeacherLeaveSubmission, AdminRole, ScheduleData, KELAS_LIST } from "../types";
+import { StudentSubmission, TeacherLeaveSubmission, AdminRole, ScheduleData, KELAS_LIST, KeteranganKehadiran } from "../types";
 import { FirebaseService } from "../firebase";
 import LaporanPanel from "./LaporanPanel";
 import TeacherPerformancePanel from "./TeacherPerformancePanel";
@@ -16,10 +16,12 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell
 } from "recharts";
+import * as XLSX from "xlsx";
 import {
   FileSpreadsheet, Filter, Search, RotateCw, Trash2, Calendar, FileText, CheckCircle,
   AlertTriangle, UserX, Printer, Download, MessageSquarePlus, RefreshCw, Layers, BellRing, Phone,
-  Edit, Check, X, ExternalLink, BookOpen, Award, Settings, Users, CheckCircle2, ShieldAlert
+  Edit, Check, X, ExternalLink, BookOpen, Award, Settings, Users, CheckCircle2, ShieldAlert,
+  Upload, UploadCloud
 } from "lucide-react";
 
 interface AdminDashboardProps {
@@ -106,6 +108,13 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
   // Sync state
   const [lastSync, setLastSync] = useState(scheduleData.classAdmins ? "Tersinkronisasi" : "Belum");
   const [isSyncing, setIsSyncing] = useState(false);
+
+  // DATA_INPUT_SISWA Backup Upload states
+  const [importedStudentRecords, setImportedStudentRecords] = useState<StudentSubmission[] | null>(null);
+  const [importStudentMode, setImportStudentMode] = useState<"merge" | "overwrite">("merge");
+  const [isProcessingStudentImport, setIsProcessingStudentImport] = useState(false);
+  const [studentImportFileName, setStudentImportFileName] = useState<string>("");
+  const [studentImportStatusMsg, setStudentImportStatusMsg] = useState<string | null>(null);
 
   // BK / Tatib Custom interactions
   const [bkRecommendations, setBkRecommendations] = useState<Record<string, string>>({});
@@ -278,6 +287,132 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
     }
   };
 
+  const handleDownloadStudentTemplate = () => {
+    const headers = [
+      ["ID", "Hari", "Tanggal", "Kelas", "Nama Guru", "Mata Pelajaran", "Jam Ke", "Keterangan Kehadiran", "Dilaporkan Oleh", "Waktu Input"]
+    ];
+    const todayStr = new Date().toISOString().split("T")[0];
+    const nowStr = new Date().toISOString().replace("T", " ").substring(0, 19);
+    const sampleRows = [
+      ["ks_001", "Senin", todayStr, "X-1", "Drs. Budi Santoso", "Matematika", "1-2", "Hadir", "Admin X-1", nowStr],
+      ["ks_002", "Senin", todayStr, "X-1", "Siti Aminah, S.Pd", "Bahasa Indonesia", "3-4", "Izin", "Admin X-1", nowStr],
+      ["ks_003", "Selasa", todayStr, "XI-2", "Ahmad Fauzi, M.Pd", "Fisika", "1-2", "Sakit", "Admin XI-2", nowStr]
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet([...headers, ...sampleRows]);
+
+    ws["!cols"] = [
+      { wch: 14 }, // ID
+      { wch: 10 }, // Hari
+      { wch: 14 }, // Tanggal
+      { wch: 10 }, // Kelas
+      { wch: 26 }, // Nama Guru
+      { wch: 22 }, // Mata Pelajaran
+      { wch: 10 }, // Jam Ke
+      { wch: 22 }, // Keterangan Kehadiran
+      { wch: 18 }, // Dilaporkan Oleh
+      { wch: 22 }, // Waktu Input
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "DATA_INPUT_SISWA");
+    XLSX.writeFile(wb, "Template_DATA_INPUT_SISWA.xlsx");
+  };
+
+  const handleStudentFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setStudentImportFileName(file.name);
+    setStudentImportStatusMsg(null);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: "binary" });
+        const wsName = wb.SheetNames[0];
+        const ws = wb.Sheets[wsName];
+        const data: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+
+        if (data.length < 2) {
+          alert("File Excel/CSV kosong atau tidak berisi baris data!");
+          return;
+        }
+
+        // Columns: 0:ID | 1:Hari | 2:Tanggal | 3:Kelas | 4:Nama Guru | 5:Mata Pelajaran | 6:Jam Ke | 7:Keterangan Kehadiran | 8:Dilaporkan Oleh | 9:Waktu Input
+        const rows = data.slice(1);
+        const parsed: StudentSubmission[] = [];
+
+        rows.forEach((row) => {
+          if (!row || row.length === 0) return;
+          const hasData = row.some(cell => cell !== null && cell !== undefined && String(cell).trim() !== "");
+          if (!hasData) return;
+
+          const id = row[0] ? String(row[0]).trim() : `imp_${Math.random().toString(36).substring(2, 9)}`;
+          const hari = row[1] ? String(row[1]).trim() : "Senin";
+          let tanggal = row[2] ? String(row[2]).trim() : new Date().toISOString().split('T')[0];
+          
+          if (!isNaN(Number(tanggal)) && Number(tanggal) > 30000) {
+            const dateObj = new Date((Number(tanggal) - (25567 + 2)) * 86400 * 1000);
+            tanggal = dateObj.toISOString().split('T')[0];
+          }
+
+          const kelas = row[3] ? String(row[3]).trim() : "";
+          const namaGuru = row[4] ? String(row[4]).trim() : "-";
+          const mataPelajaran = row[5] ? String(row[5]).trim() : "-";
+          const jamKe = row[6] ? String(row[6]).trim() : "1";
+          const rawKet = row[7] ? String(row[7]).trim() : "Hadir";
+          const keteranganKehadiran: KeteranganKehadiran = (
+            ["Hadir", "Izin", "Sakit", "Terlambat", "Alpa"].includes(rawKet) ? rawKet : "Hadir"
+          ) as KeteranganKehadiran;
+          const submittedBy = row[8] ? String(row[8]).trim() : "Admin Import";
+          const submittedAt = row[9] ? String(row[9]).trim() : new Date().toISOString();
+
+          parsed.push({
+            id,
+            hari,
+            tanggal,
+            kelas,
+            namaGuru,
+            mataPelajaran,
+            jamKe,
+            keteranganKehadiran,
+            submittedBy,
+            submittedAt
+          });
+        });
+
+        if (parsed.length === 0) {
+          alert("Tidak ditemukan baris data valid pada file yang diunggah.");
+          return;
+        }
+
+        setImportedStudentRecords(parsed);
+      } catch (err: any) {
+        alert("Gagal membaca file Excel/CSV: " + (err.message || err));
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const handleConfirmStudentImport = async () => {
+    if (!importedStudentRecords || importedStudentRecords.length === 0) return;
+
+    setIsProcessingStudentImport(true);
+    try {
+      const updatedList = await FirebaseService.saveAllSubmissionsKelas(importedStudentRecords, importStudentMode);
+      setSubmissionsKelas(updatedList);
+      setStudentImportStatusMsg(`Berhasil mengimpor ${importedStudentRecords.length} data DATA_INPUT_SISWA ke sistem!`);
+      setImportedStudentRecords(null);
+      setStudentImportFileName("");
+    } catch (err: any) {
+      alert("Gagal mengimpor data: " + (err.message || err));
+    } finally {
+      setIsProcessingStudentImport(false);
+    }
+  };
+
   const handleDeleteKelas = async (id: string, name: string) => {
     if (!window.confirm(`Hapus laporan kehadiran guru ${name}? Tindakan ini tidak dapat dibatalkan.`)) return;
     try {
@@ -288,6 +423,22 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
     }
   };
 
+  const handleDeleteAllKelas = async () => {
+    const totalCount = submissionsKelas.length;
+    if (totalCount === 0) {
+      alert("Tidak ada data laporan kehadiran kelas untuk dihapus.");
+      return;
+    }
+    if (!window.confirm(`Apakah Anda yakin ingin MENGHAPUS SEMUA (${totalCount}) data laporan kehadiran kelas/siswa? Tindakan ini tidak dapat dibatalkan!`)) return;
+    try {
+      await FirebaseService.clearAllSubmissionsKelas();
+      setSubmissionsKelas([]);
+      alert(`Berhasil menghapus seluruh ${totalCount} data laporan kehadiran kelas.`);
+    } catch (e: any) {
+      alert("Terjadi kesalahan saat menghapus data: " + (e.message || e));
+    }
+  };
+
   const handleDeleteIzin = async (id: string, name: string) => {
     if (!window.confirm(`Hapus laporan izin guru ${name}? Tindakan ini tidak dapat dibatalkan.`)) return;
     try {
@@ -295,6 +446,22 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
       setSubmissionsIzin(prev => prev.filter(item => item.id !== id));
     } catch (e: any) {
       alert("Terjadi kesalahan: " + (e.message || e));
+    }
+  };
+
+  const handleDeleteAllIzin = async () => {
+    const totalCount = submissionsIzin.length;
+    if (totalCount === 0) {
+      alert("Tidak ada data laporan izin guru untuk dihapus.");
+      return;
+    }
+    if (!window.confirm(`Apakah Anda yakin ingin MENGHAPUS SEMUA (${totalCount}) data laporan izin guru? Tindakan ini tidak dapat dibatalkan!`)) return;
+    try {
+      await FirebaseService.clearAllSubmissionsIzin();
+      setSubmissionsIzin([]);
+      alert(`Berhasil menghapus seluruh ${totalCount} data laporan izin guru.`);
+    } catch (e: any) {
+      alert("Terjadi kesalahan saat menghapus data: " + (e.message || e));
     }
   };
 
@@ -884,7 +1051,31 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
           </div>
 
           {/* Action Buttons Right Side */}
-          <div className="flex gap-2 shrink-0 items-center justify-end">
+          <div className="flex gap-2 shrink-0 items-center justify-end flex-wrap">
+            {activeTab === "KELAS" && submissionsKelas.length > 0 && (
+              <button
+                type="button"
+                onClick={handleDeleteAllKelas}
+                id="btn-delete-all-kelas"
+                className="flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-black bg-rose-600 hover:bg-rose-700 text-white rounded-xl shadow-md shadow-rose-600/20 transition-all cursor-pointer border border-rose-400/30 active:scale-95"
+                title="Hapus Seluruh Data Laporan Kehadiran Kelas"
+              >
+                <Trash2 className="w-4 h-4 shrink-0" />
+                <span>Hapus Semua Laporan Kelas ({submissionsKelas.length})</span>
+              </button>
+            )}
+            {activeTab === "IZIN" && submissionsIzin.length > 0 && (
+              <button
+                type="button"
+                onClick={handleDeleteAllIzin}
+                id="btn-delete-all-izin"
+                className="flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-black bg-rose-600 hover:bg-rose-700 text-white rounded-xl shadow-md shadow-rose-600/20 transition-all cursor-pointer border border-rose-400/30 active:scale-95"
+                title="Hapus Seluruh Data Laporan Izin Guru"
+              >
+                <Trash2 className="w-4 h-4 shrink-0" />
+                <span>Hapus Semua Laporan Izin ({submissionsIzin.length})</span>
+              </button>
+            )}
             {role === "TU" && (
               <button
                 onClick={() => window.print()}
@@ -1124,6 +1315,186 @@ export default function AdminDashboard({ role, scheduleData, onLogout }: AdminDa
                     )}
                   </span>
                 </div>
+              </div>
+
+              {/* Upload Backup DATA_INPUT_SISWA (Data Input Kelas) Card */}
+              <div className="bg-white border border-slate-200/80 rounded-2xl p-5 md:p-6 space-y-5 shadow-sm">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                      <UploadCloud className="w-5 h-5 text-indigo-600" />
+                      Upload Backup DATA_INPUT_SISWA (Data Input Kelas)
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                      Upload file Excel/CSV hasil backup untuk mengimpor atau memulihkan data absensi kelas (siswa) secara mudah.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleDownloadStudentTemplate}
+                    className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/80 rounded-xl transition-all shrink-0 cursor-pointer shadow-2xs"
+                  >
+                    <Download className="w-4 h-4" /> Unduh Template Excel
+                  </button>
+                </div>
+
+                {/* Column Format Legend */}
+                <div className="bg-slate-50 border border-slate-200/60 rounded-xl p-3.5 text-[11px] text-slate-600 space-y-2">
+                  <div className="font-bold text-slate-700 flex items-center gap-1.5">
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-600" /> Format Kolom Template Excel DATA_INPUT_SISWA:
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 font-mono text-[10px]">
+                    {["ID", "Hari", "Tanggal", "Kelas", "Nama Guru", "Mata Pelajaran", "Jam Ke", "Keterangan Kehadiran", "Dilaporkan Oleh", "Waktu Input"].map((col) => (
+                      <span key={col} className="px-2 py-0.5 bg-white border border-slate-200 rounded text-slate-800 font-semibold shadow-2xs">
+                        {col}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Upload File Input Area */}
+                <div className="border-2 border-dashed border-indigo-200 hover:border-indigo-400 bg-indigo-50/20 hover:bg-indigo-50/50 rounded-2xl p-6 text-center transition-all">
+                  <input
+                    type="file"
+                    accept=".xlsx, .xls, .csv"
+                    id="student-excel-upload"
+                    className="hidden"
+                    onChange={handleStudentFileUpload}
+                  />
+                  <label htmlFor="student-excel-upload" className="cursor-pointer flex flex-col items-center justify-center space-y-2">
+                    <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center shadow-xs">
+                      <Upload className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-800">
+                        Klik untuk memilih file Excel / CSV DATA_INPUT_SISWA
+                      </p>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Mendukung format .XLSX, .XLS, dan .CSV
+                      </p>
+                    </div>
+                    {studentImportFileName && (
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-100 text-emerald-800 text-xs font-semibold rounded-lg mt-2">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> File Terpilih: {studentImportFileName}
+                      </span>
+                    )}
+                  </label>
+                </div>
+
+                {studentImportStatusMsg && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-semibold flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    {studentImportStatusMsg}
+                  </div>
+                )}
+
+                {/* Preview Parsed Data */}
+                {importedStudentRecords && importedStudentRecords.length > 0 && (
+                  <div className="bg-slate-900 text-slate-100 rounded-2xl p-5 space-y-4 border border-slate-800 shadow-xl">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                      <div>
+                        <h4 className="text-xs font-black uppercase tracking-wider text-emerald-400 flex items-center gap-2">
+                          <Check className="w-4 h-4" /> Pratinjau Data ({importedStudentRecords.length} Baris Terdeteksi)
+                        </h4>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          Periksa data sebelum mengimpor ke sistem.
+                        </p>
+                      </div>
+
+                      {/* Mode Selector */}
+                      <div className="flex items-center gap-2 bg-slate-800 p-1 rounded-xl border border-slate-700">
+                        <button
+                          type="button"
+                          onClick={() => setImportStudentMode("merge")}
+                          className={`px-3 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${
+                            importStudentMode === "merge"
+                              ? "bg-emerald-600 text-white shadow-xs"
+                              : "text-slate-400 hover:text-white"
+                          }`}
+                        >
+                          Gabungkan Data
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setImportStudentMode("overwrite")}
+                          className={`px-3 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${
+                            importStudentMode === "overwrite"
+                              ? "bg-amber-600 text-white shadow-xs"
+                              : "text-slate-400 hover:text-white"
+                          }`}
+                        >
+                          Timpa Semua Data
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Preview Table */}
+                    <div className="max-h-60 overflow-y-auto border border-slate-800 rounded-xl">
+                      <table className="w-full text-left text-[11px] text-slate-300">
+                        <thead className="sticky top-0 bg-slate-800 text-slate-200 font-bold border-b border-slate-700">
+                          <tr>
+                            <th className="px-3 py-2">ID</th>
+                            <th className="px-3 py-2">Hari</th>
+                            <th className="px-3 py-2">Tanggal</th>
+                            <th className="px-3 py-2">Kelas</th>
+                            <th className="px-3 py-2">Nama Guru</th>
+                            <th className="px-3 py-2">Mata Pelajaran</th>
+                            <th className="px-3 py-2">Jam Ke</th>
+                            <th className="px-3 py-2">Keterangan</th>
+                            <th className="px-3 py-2">Dilaporkan Oleh</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/60">
+                          {importedStudentRecords.slice(0, 50).map((rec, idx) => (
+                            <tr key={idx} className="hover:bg-slate-800/40">
+                              <td className="px-3 py-1.5 font-mono text-[10px] text-slate-400">{rec.id}</td>
+                              <td className="px-3 py-1.5">{rec.hari}</td>
+                              <td className="px-3 py-1.5">{rec.tanggal}</td>
+                              <td className="px-3 py-1.5 font-bold text-indigo-400">{rec.kelas}</td>
+                              <td className="px-3 py-1.5 font-medium text-white">{rec.namaGuru}</td>
+                              <td className="px-3 py-1.5">{rec.mataPelajaran}</td>
+                              <td className="px-3 py-1.5">{rec.jamKe}</td>
+                              <td className="px-3 py-1.5">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  rec.keteranganKehadiran === "Hadir" ? "bg-emerald-500/20 text-emerald-300" :
+                                  rec.keteranganKehadiran === "Izin" ? "bg-blue-500/20 text-blue-300" :
+                                  rec.keteranganKehadiran === "Sakit" ? "bg-amber-500/20 text-amber-300" :
+                                  "bg-rose-500/20 text-rose-300"
+                                }`}>
+                                  {rec.keteranganKehadiran}
+                                </span>
+                              </td>
+                              <td className="px-3 py-1.5 text-slate-400">{rec.submittedBy}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {importedStudentRecords.length > 50 && (
+                        <div className="p-2 text-center text-[10px] text-slate-400 bg-slate-800/30">
+                          + {importedStudentRecords.length - 50} baris lainnya...
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-end gap-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setImportedStudentRecords(null)}
+                        className="px-4 py-2 text-xs font-bold text-slate-400 hover:text-white bg-slate-800 rounded-xl transition-all cursor-pointer"
+                      >
+                        Batal
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleConfirmStudentImport}
+                        disabled={isProcessingStudentImport}
+                        className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-800 rounded-xl shadow-sm transition-all cursor-pointer flex items-center gap-1.5"
+                      >
+                        {isProcessingStudentImport ? "Memproses Import..." : `Simpan ${importedStudentRecords.length} Data ke Sistem`}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Instructions and Code Card */}
@@ -1682,45 +2053,87 @@ const APPS_SCRIPT_CODE = `function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
     
-    if (action === 'get_schedule') {
+    if (action === 'get_schedule' || action === 'get_all') {
       var sheetUtama = doc.getSheetByName("DATA_UTAMA");
-      if (!sheetUtama) {
-        return ContentService.createTextOutput(JSON.stringify({ 
-          success: false, 
-          error: "Sheet DATA_UTAMA tidak ditemukan!" 
-        })).setMimeType(ContentService.MimeType.JSON);
-      }
-      var values = sheetUtama.getDataRange().getValues();
       var namaGuruList = [];
       var mataPelajaranList = [];
       var jamKeList = [];
       var classAdmins = {};
       
-      for (var r = 1; r < values.length; r++) {
-        var row = values[r];
-        if (row[2]) {
-          var val = row[2].toString().trim();
-          if (val && namaGuruList.indexOf(val) === -1) {
-            namaGuruList.push(val);
+      if (sheetUtama) {
+        var values = sheetUtama.getDataRange().getValues();
+        for (var r = 1; r < values.length; r++) {
+          var row = values[r];
+          if (row[2]) {
+            var val = row[2].toString().trim();
+            if (val && namaGuruList.indexOf(val) === -1) {
+              namaGuruList.push(val);
+            }
+          }
+          if (row[3]) {
+            var val = row[3].toString().trim();
+            if (val && mataPelajaranList.indexOf(val) === -1) {
+              mataPelajaranList.push(val);
+            }
+          }
+          if (row[4]) {
+            var val = row[4].toString().trim();
+            if (val && jamKeList.indexOf(val) === -1) {
+              jamKeList.push(val);
+            }
+          }
+          if (row[6]) {
+            var username = row[6].toString().trim().toLowerCase();
+            var password = row[7] ? row[7].toString().trim() : "adminkelas2026";
+            if (username) {
+              classAdmins[username] = password;
+            }
           }
         }
-        if (row[3]) {
-          var val = row[3].toString().trim();
-          if (val && mataPelajaranList.indexOf(val) === -1) {
-            mataPelajaranList.push(val);
+      }
+
+      var kelasData = [];
+      var sheetKelas = doc.getSheetByName("DATA_INPUT_SISWA") || doc.getSheetByName("DATA_INPUT_KELAS");
+      if (sheetKelas) {
+        var valsS = sheetKelas.getDataRange().getValues();
+        for (var s = 1; s < valsS.length; s++) {
+          var rS = valsS[s];
+          if (rS[4] || rS[1] || rS[3]) {
+            kelasData.push({
+              id: rS[0] ? rS[0].toString() : "gs_" + s,
+              hari: rS[1] ? rS[1].toString() : "",
+              tanggal: rS[2] ? rS[2].toString() : "",
+              kelas: rS[3] ? rS[3].toString() : "",
+              namaGuru: rS[4] ? rS[4].toString() : "",
+              mataPelajaran: rS[5] ? rS[5].toString() : "",
+              jamKe: rS[6] ? rS[6].toString() : "1",
+              keteranganKehadiran: rS[7] ? rS[7].toString() : "Hadir",
+              submittedBy: rS[8] ? rS[8].toString() : "Google Sheet",
+              submittedAt: rS[9] ? rS[9].toString() : new Date().toISOString()
+            });
           }
         }
-        if (row[4]) {
-          var val = row[4].toString().trim();
-          if (val && jamKeList.indexOf(val) === -1) {
-            jamKeList.push(val);
-          }
-        }
-        if (row[6]) {
-          var username = row[6].toString().trim().toLowerCase();
-          var password = row[7] ? row[7].toString().trim() : "adminkelas2026";
-          if (username) {
-            classAdmins[username] = password;
+      }
+
+      var izinData = [];
+      var sheetIzin = doc.getSheetByName("DATA_INPUT_IZIN_GURU");
+      if (sheetIzin) {
+        var valsI = sheetIzin.getDataRange().getValues();
+        for (var z = 1; z < valsI.length; z++) {
+          var rI = valsI[z];
+          if (rI[4] || rI[1] || rI[3]) {
+            izinData.push({
+              id: rI[0] ? rI[0].toString() : "gsi_" + z,
+              hari: rI[1] ? rI[1].toString() : "",
+              tanggal: rI[2] ? rI[2].toString() : "",
+              kelas: rI[3] ? rI[3].toString() : "",
+              namaGuru: rI[4] ? rI[4].toString() : "",
+              mataPelajaran: rI[5] ? rI[5].toString() : "",
+              jamKe: rI[6] ? rI[6].toString() : "1",
+              keteranganKehadiran: rI[7] ? rI[7].toString() : "Izin",
+              keteranganIzinGuru: rI[8] ? rI[8].toString() : "-",
+              submittedAt: rI[9] ? rI[9].toString() : new Date().toISOString()
+            });
           }
         }
       }
@@ -1730,7 +2143,9 @@ const APPS_SCRIPT_CODE = `function doPost(e) {
         namaGuruList: namaGuruList,
         mataPelajaranList: mataPelajaranList,
         jamKeList: jamKeList,
-        classAdmins: classAdmins
+        classAdmins: classAdmins,
+        kelasData: kelasData,
+        izinData: izinData
       })).setMimeType(ContentService.MimeType.JSON);
     }
     
@@ -1852,37 +2267,33 @@ const APPS_SCRIPT_CODE = `function doPost(e) {
 }
 
 function doGet(e) {
-  var action = e && e.parameter ? e.parameter.action : null;
-  if (action === 'get_schedule') {
-    var lock = LockService.getScriptLock();
-    lock.tryLock(10000);
+  var lock = LockService.getScriptLock();
+  lock.tryLock(10000);
+  try {
+    var doc = null;
     try {
-      var doc = null;
-      try {
-        doc = SpreadsheetApp.getActiveSpreadsheet();
-      } catch (err) {}
-      
-      if (!doc) {
-        var SPREADSHEET_ID = ""; // Masukkan ID manual jika standalone
-        if (SPREADSHEET_ID && SPREADSHEET_ID !== "") {
-          doc = SpreadsheetApp.openById(SPREADSHEET_ID);
-        }
+      doc = SpreadsheetApp.getActiveSpreadsheet();
+    } catch (err) {}
+    
+    if (!doc) {
+      var SPREADSHEET_ID = ""; // Masukkan ID manual jika standalone
+      if (SPREADSHEET_ID && SPREADSHEET_ID !== "") {
+        doc = SpreadsheetApp.openById(SPREADSHEET_ID);
       }
-      
-      if (!doc) {
-        return ContentService.createTextOutput(JSON.stringify({ success: false, error: "Spreadsheet tidak ditemukan!" })).setMimeType(ContentService.MimeType.JSON);
-      }
-      
-      var sheetUtama = doc.getSheetByName("DATA_UTAMA");
-      if (!sheetUtama) {
-        return ContentService.createTextOutput(JSON.stringify({ success: false, error: "Sheet DATA_UTAMA tidak ditemukan!" })).setMimeType(ContentService.MimeType.JSON);
-      }
+    }
+    
+    if (!doc) {
+      return ContentService.createTextOutput(JSON.stringify({ success: false, error: "Spreadsheet tidak ditemukan!" })).setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    var sheetUtama = doc.getSheetByName("DATA_UTAMA");
+    var namaGuruList = [];
+    var mataPelajaranList = [];
+    var jamKeList = [];
+    var classAdmins = {};
+    
+    if (sheetUtama) {
       var values = sheetUtama.getDataRange().getValues();
-      var namaGuruList = [];
-      var mataPelajaranList = [];
-      var jamKeList = [];
-      var classAdmins = {};
-      
       for (var r = 1; r < values.length; r++) {
         var row = values[r];
         if (row[2]) {
@@ -1903,20 +2314,66 @@ function doGet(e) {
           if (username) { classAdmins[username] = password; }
         }
       }
-      
-      return ContentService.createTextOutput(JSON.stringify({
-        success: true,
-        namaGuruList: namaGuruList,
-        mataPelajaranList: mataPelajaranList,
-        jamKeList: jamKeList,
-        classAdmins: classAdmins
-      })).setMimeType(ContentService.MimeType.JSON);
-    } catch (error) {
-      return ContentService.createTextOutput(JSON.stringify({ success: false, error: error.toString() })).setMimeType(ContentService.MimeType.JSON);
-    } finally {
-      lock.releaseLock();
     }
+
+    var kelasData = [];
+    var sheetKelas = doc.getSheetByName("DATA_INPUT_SISWA") || doc.getSheetByName("DATA_INPUT_KELAS");
+    if (sheetKelas) {
+      var valsS = sheetKelas.getDataRange().getValues();
+      for (var s = 1; s < valsS.length; s++) {
+        var rS = valsS[s];
+        if (rS[4] || rS[1] || rS[3]) {
+          kelasData.push({
+            id: rS[0] ? rS[0].toString() : "gs_" + s,
+            hari: rS[1] ? rS[1].toString() : "",
+            tanggal: rS[2] ? rS[2].toString() : "",
+            kelas: rS[3] ? rS[3].toString() : "",
+            namaGuru: rS[4] ? rS[4].toString() : "",
+            mataPelajaran: rS[5] ? rS[5].toString() : "",
+            jamKe: rS[6] ? rS[6].toString() : "1",
+            keteranganKehadiran: rS[7] ? rS[7].toString() : "Hadir",
+            submittedBy: rS[8] ? rS[8].toString() : "Google Sheet",
+            submittedAt: rS[9] ? rS[9].toString() : new Date().toISOString()
+          });
+        }
+      }
+    }
+
+    var izinData = [];
+    var sheetIzin = doc.getSheetByName("DATA_INPUT_IZIN_GURU");
+    if (sheetIzin) {
+      var valsI = sheetIzin.getDataRange().getValues();
+      for (var z = 1; z < valsI.length; z++) {
+        var rI = valsI[z];
+        if (rI[4] || rI[1] || rI[3]) {
+          izinData.push({
+            id: rI[0] ? rI[0].toString() : "gsi_" + z,
+            hari: rI[1] ? rI[1].toString() : "",
+            tanggal: rI[2] ? rI[2].toString() : "",
+            kelas: rI[3] ? rI[3].toString() : "",
+            namaGuru: rI[4] ? rI[4].toString() : "",
+            mataPelajaran: rI[5] ? rI[5].toString() : "",
+            jamKe: rI[6] ? rI[6].toString() : "1",
+            keteranganKehadiran: rI[7] ? rI[7].toString() : "Izin",
+            keteranganIzinGuru: rI[8] ? rI[8].toString() : "-",
+            submittedAt: rI[9] ? rI[9].toString() : new Date().toISOString()
+          });
+        }
+      }
+    }
+
+    return ContentService.createTextOutput(JSON.stringify({
+      success: true,
+      namaGuruList: namaGuruList,
+      mataPelajaranList: mataPelajaranList,
+      jamKeList: jamKeList,
+      classAdmins: classAdmins,
+      kelasData: kelasData,
+      izinData: izinData
+    })).setMimeType(ContentService.MimeType.JSON);
+  } catch (error) {
+    return ContentService.createTextOutput(JSON.stringify({ success: false, error: error.toString() })).setMimeType(ContentService.MimeType.JSON);
+  } finally {
+    lock.releaseLock();
   }
-  return ContentService.createTextOutput("Google Apps Script Web App untuk Presensi Sekolah Aktif!")
-    .setMimeType(ContentService.MimeType.TEXT);
 }`;

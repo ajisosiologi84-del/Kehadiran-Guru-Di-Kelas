@@ -483,6 +483,110 @@ export const FirebaseService = {
     return newRecord;
   },
 
+  async saveAllSubmissionsKelas(records: any[], mode: 'merge' | 'overwrite' = 'merge'): Promise<any[]> {
+    // 1. Try server API
+    try {
+      const res = await fetch("/api/submissions/kelas/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ records, mode })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.data)) {
+          localStorage.setItem("presence_submissions_kelas", JSON.stringify(data.data));
+          return data.data;
+        }
+      }
+    } catch (e) {}
+
+    // 2. Fallback to local / Firestore
+    let current = await this.getSubmissionsKelas();
+    let finalList: any[] = [];
+
+    if (mode === 'overwrite') {
+      finalList = records;
+    } else {
+      const existingMap = new Map(current.map((item: any) => [item.id, item]));
+      records.forEach((rec: any) => {
+        if (rec && rec.id) {
+          existingMap.set(rec.id, rec);
+        }
+      });
+      finalList = Array.from(existingMap.values());
+    }
+
+    localStorage.setItem("presence_submissions_kelas", JSON.stringify(finalList));
+
+    if (firebaseActive && db && !firestoreQuotaExceeded) {
+      try {
+        const writePromises = finalList.map(item => {
+          return setDoc(doc(db, "submissions_kelas", item.id), item);
+        });
+        await Promise.all(writePromises);
+      } catch (err) {
+        logAndCatchFirestoreError(err, OperationType.WRITE, "submissions_kelas bulk");
+      }
+    }
+
+    // Async sync to Apps Script if available
+    this.bulkSyncWithAppsScript(finalList, []).catch(() => {});
+
+    return finalList;
+  },
+
+  async clearAllSubmissionsKelas(): Promise<boolean> {
+    // 1. Delete all docs from Firestore if active
+    if (firebaseActive && db && !firestoreQuotaExceeded) {
+      try {
+        const snap = await getDocs(collection(db, "submissions_kelas"));
+        const deletePromises = snap.docs.map(d => deleteDoc(d.ref));
+        await Promise.all(deletePromises);
+      } catch (err) {
+        logAndCatchFirestoreError(err, OperationType.DELETE, "submissions_kelas clear all");
+      }
+    }
+
+    // 2. Clear local storage
+    localStorage.setItem("presence_submissions_kelas", JSON.stringify([]));
+
+    // 3. Clear server-side JSON / file cache
+    try {
+      await fetch("/api/submissions/kelas/all", { method: "DELETE" });
+    } catch (e) {}
+
+    // 4. Sync with Google Sheets
+    this.bulkSyncWithAppsScript([], []).catch(() => {});
+
+    return true;
+  },
+
+  async clearAllSubmissionsIzin(): Promise<boolean> {
+    // 1. Delete all docs from Firestore if active
+    if (firebaseActive && db && !firestoreQuotaExceeded) {
+      try {
+        const snap = await getDocs(collection(db, "submissions_izin"));
+        const deletePromises = snap.docs.map(d => deleteDoc(d.ref));
+        await Promise.all(deletePromises);
+      } catch (err) {
+        logAndCatchFirestoreError(err, OperationType.DELETE, "submissions_izin clear all");
+      }
+    }
+
+    // 2. Clear local storage
+    localStorage.setItem("presence_submissions_izin", JSON.stringify([]));
+
+    // 3. Clear server-side JSON / file cache
+    try {
+      await fetch("/api/submissions/izin/all", { method: "DELETE" });
+    } catch (e) {}
+
+    // 4. Sync with Google Sheets
+    this.bulkSyncWithAppsScript([], []).catch(() => {});
+
+    return true;
+  },
+
   async deleteSubmissionKelas(id: string): Promise<boolean> {
     if (firebaseActive && db && !firestoreQuotaExceeded) {
       const pathStr = `submissions_kelas/${id}`;
