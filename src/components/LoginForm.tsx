@@ -6,7 +6,7 @@
 import { useState, FormEvent } from "react";
 import { UserSession, AdminRole } from "../types";
 import { FirebaseService } from "../firebase";
-import { KeyRound, Users, GraduationCap, ShieldAlert, BookOpen } from "lucide-react";
+import { KeyRound, Users, GraduationCap, ShieldAlert, BookOpen, Eye, EyeOff } from "lucide-react";
 
 interface LoginFormProps {
   onLoginSuccess: (session: UserSession) => void;
@@ -19,6 +19,7 @@ export default function LoginForm({ onLoginSuccess, isLoading, defaultType = "ST
   const [adminRole, setAdminRole] = useState<AdminRole>("UTAMA");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -103,7 +104,7 @@ export default function LoginForm({ onLoginSuccess, isLoading, defaultType = "ST
         </button>
       </div>
 
-      <div className="p-8">
+      <div className="p-6 md:p-8">
         <div className="text-center mb-6">
           <h2 className="text-2xl font-bold text-slate-800">
             {loginType === "STUDENT" 
@@ -138,10 +139,14 @@ export default function LoginForm({ onLoginSuccess, isLoading, defaultType = "ST
                   type="text"
                   id="input-username"
                   required
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  autoComplete="username"
                   placeholder="Contoh: guru"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-800 text-sm placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all"
+                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 text-sm placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all"
                 />
               </div>
             </div>
@@ -152,7 +157,7 @@ export default function LoginForm({ onLoginSuccess, isLoading, defaultType = "ST
                 id="select-admin-role"
                 value={adminRole}
                 onChange={(e) => setAdminRole(e.target.value as AdminRole)}
-                className="w-full px-4 py-2.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-800 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
               >
                 <option value="UTAMA">Admin Utama</option>
                 <option value="TU">Admin Tata Usaha (TU)</option>
@@ -169,29 +174,48 @@ export default function LoginForm({ onLoginSuccess, isLoading, defaultType = "ST
                   type="text"
                   id="input-username-student"
                   required
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  autoComplete="username"
                   placeholder="Contoh: adminkelasx1"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-800 text-sm placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 text-sm placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                 />
               </div>
-              <p className="text-[10px] text-slate-400">Username sesuai yang tercantum di Sheet DATA_UTAMA</p>
+              <p className="text-[11px] text-slate-500 font-medium">Contoh: adminkelasx1 (atau adminkelas10a/sesuai Sheet DATA_UTAMA)</p>
             </div>
           )}
 
           <div className="space-y-2">
-            <label className="text-xs font-semibold text-slate-600 block">Password</label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-slate-600 block">Password</label>
+              <span className="text-[10px] text-slate-400">Peka huruf besar/kecil ditoleransi pada HP</span>
+            </div>
             <div className="relative">
               <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
-                type="password"
+                type={showPassword ? "text" : "password"}
                 id="input-password"
                 required
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                autoComplete="current-password"
                 placeholder="Masukkan password Anda"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-800 text-sm placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                className="w-full pl-10 pr-12 py-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 text-sm placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer rounded-lg hover:bg-slate-100"
+                title={showPassword ? "Sembunyikan Password" : "Tampilkan Password"}
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
             </div>
           </div>
 
@@ -199,19 +223,17 @@ export default function LoginForm({ onLoginSuccess, isLoading, defaultType = "ST
             type="submit"
             id="btn-submit-login"
             disabled={isSubmitting || isLoading}
-            className={`w-full py-3 rounded-lg text-white font-semibold text-sm transition-all duration-200 flex items-center justify-center gap-2 ${
+            className={`w-full py-3.5 rounded-xl text-white font-bold text-sm transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer ${
               loginType === "STUDENT"
-                ? "bg-blue-600 hover:bg-blue-700 active:scale-[0.98] shadow-md shadow-blue-500/10"
+                ? "bg-blue-600 hover:bg-blue-700 active:scale-[0.98] shadow-md shadow-blue-500/20"
                 : loginType === "TEACHER"
-                ? "bg-amber-600 hover:bg-amber-700 active:scale-[0.98] shadow-md shadow-amber-500/10"
-                : "bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] shadow-md shadow-indigo-500/10"
+                ? "bg-amber-600 hover:bg-amber-700 active:scale-[0.98] shadow-md shadow-amber-500/20"
+                : "bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] shadow-md shadow-indigo-500/20"
             } disabled:opacity-50 disabled:pointer-events-none`}
           >
             {isSubmitting ? "Sedang Memverifikasi..." : "Masuk ke Sistem"}
           </button>
         </form>
-
-
       </div>
     </div>
   );

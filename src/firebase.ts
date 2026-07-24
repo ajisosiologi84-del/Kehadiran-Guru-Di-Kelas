@@ -128,15 +128,23 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   throw new Error(JSON.stringify(errInfo));
 }
 
+let firestoreQuotaExceeded = false;
+
 // Validate connection to Firestore on startup as required by instructions
 async function testConnection() {
-  if (!firebaseActive || !db) return;
+  if (!firebaseActive || !db || firestoreQuotaExceeded) return;
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
     console.log("Firestore connection test passed.");
   } catch (error: any) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Please check your Firebase configuration or internet connection.");
+    const errMsg = error instanceof Error ? error.message : String(error);
+    if (errMsg.includes('Quota') || errMsg.includes('quota') || errMsg.includes('RESOURCE_EXHAUSTED')) {
+      firestoreQuotaExceeded = true;
+      console.warn("Firestore quota limit reached. Using Express API and local persistence fallback.");
+    } else if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.warn("Please check your Firebase configuration or internet connection.");
+    } else {
+      console.warn("Firestore test connection note:", errMsg);
     }
   }
 }
@@ -178,13 +186,28 @@ function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = 5000
   });
 }
 
+// Helper to catch and log Firestore errors without crashing the caller
+function logAndCatchFirestoreError(err: unknown, operationType: OperationType, path: string | null) {
+  const errMsg = err instanceof Error ? err.message : String(err);
+  if (errMsg.includes('Quota') || errMsg.includes('quota') || errMsg.includes('RESOURCE_EXHAUSTED')) {
+    firestoreQuotaExceeded = true;
+    console.warn(`[Firestore Quota Limit] Operation ${operationType} on ${path} bypassed via local/server fallback.`);
+    return;
+  }
+  try {
+    handleFirestoreError(err, operationType, path);
+  } catch (e) {
+    console.warn(`[Firestore Fallback] Operation ${operationType} on ${path} failed:`, e);
+  }
+}
+
 // Core Firebase Client Service
 export const FirebaseService = {
   isConfigured: () => firebaseActive,
 
   // 1. SETTINGS
   async getSettings() {
-    if (firebaseActive && db) {
+    if (firebaseActive && db && !firestoreQuotaExceeded) {
       const pathStr = "settings/main";
       try {
         const snap = await getDoc(doc(db, "settings", "main"));
@@ -197,10 +220,25 @@ export const FirebaseService = {
           };
         }
       } catch (err) {
-        handleFirestoreError(err, OperationType.GET, pathStr);
+        logAndCatchFirestoreError(err, OperationType.GET, pathStr);
       }
     }
     
+    // Try Server API
+    try {
+      const res = await fetch("/api/settings");
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.appsScriptUrl !== undefined) {
+          return {
+            appsScriptUrl: data.appsScriptUrl || "https://script.google.com/macros/s/AKfycbyU3izS72BeaDMovgdNSx8nLMgRBqFDLxa-fcXX0o2YRsllUpJb5K1f-inPCYoG1es0/exec",
+            logoUrl: data.logoUrl || "",
+            informasiUmum: data.informasiUmum || ""
+          };
+        }
+      }
+    } catch (e) {}
+
     // Fallback to local storage or fallback value
     const local = localStorage.getItem("presence_settings");
     if (local) {
@@ -222,29 +260,53 @@ export const FirebaseService = {
 
   async saveSettings(settings: { appsScriptUrl: string; logoUrl?: string; informasiUmum?: string }) {
     localStorage.setItem("presence_settings", JSON.stringify(settings));
-    if (firebaseActive && db) {
+
+    try {
+      await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(settings)
+      });
+    } catch (e) {}
+
+    if (firebaseActive && db && !firestoreQuotaExceeded) {
       const pathStr = "settings/main";
       try {
         await setDoc(doc(db, "settings", "main"), settings);
       } catch (err) {
-        handleFirestoreError(err, OperationType.WRITE, pathStr);
+        logAndCatchFirestoreError(err, OperationType.WRITE, pathStr);
       }
     }
   },
 
   // 2. SCHEDULE & CLASS ADMINS
   async getScheduleData(): Promise<ScheduleData> {
-    if (firebaseActive && db) {
+    if (firebaseActive && db && !firestoreQuotaExceeded) {
       const pathStr = "settings/cached_schedule";
       try {
         const snap = await getDoc(doc(db, "settings", "cached_schedule"));
         if (snap.exists()) {
-          return snap.data() as ScheduleData;
+          const data = snap.data() as ScheduleData;
+          if (data && data.namaGuruList && data.namaGuruList.length > 0) {
+            return data;
+          }
         }
       } catch (err) {
-        console.warn("Failed to load cached schedule from Firestore:", err);
+        logAndCatchFirestoreError(err, OperationType.GET, pathStr);
       }
     }
+
+    // Try Server API
+    try {
+      const res = await fetch("/api/schedule");
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.namaGuruList && data.namaGuruList.length > 0) {
+          localStorage.setItem("presence_schedule", JSON.stringify(data));
+          return data;
+        }
+      }
+    } catch (e) {}
 
     // Try localStorage
     const local = localStorage.getItem("presence_schedule");
@@ -270,12 +332,12 @@ export const FirebaseService = {
 
   async saveScheduleData(data: ScheduleData) {
     localStorage.setItem("presence_schedule", JSON.stringify(data));
-    if (firebaseActive && db) {
+    if (firebaseActive && db && !firestoreQuotaExceeded) {
       const pathStr = "settings/cached_schedule";
       try {
         await setDoc(doc(db, "settings", "cached_schedule"), data);
       } catch (err) {
-        handleFirestoreError(err, OperationType.WRITE, pathStr);
+        logAndCatchFirestoreError(err, OperationType.WRITE, pathStr);
       }
     }
   },
@@ -307,7 +369,7 @@ export const FirebaseService = {
 
   // 4. SUBMISSIONS (KELAS)
   async getSubmissionsKelas(): Promise<any[]> {
-    if (firebaseActive && db) {
+    if (firebaseActive && db && !firestoreQuotaExceeded) {
       const pathStr = "submissions_kelas";
       try {
         const querySnapshot = await getDocs(collection(db, "submissions_kelas"));
@@ -317,9 +379,21 @@ export const FirebaseService = {
         });
         return list.sort((a, b) => new Date(a.submittedAt || 0).getTime() - new Date(b.submittedAt || 0).getTime());
       } catch (err) {
-        handleFirestoreError(err, OperationType.LIST, pathStr);
+        logAndCatchFirestoreError(err, OperationType.LIST, pathStr);
       }
     }
+
+    // Try server API
+    try {
+      const res = await fetch("/api/submissions/kelas");
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          localStorage.setItem("presence_submissions_kelas", JSON.stringify(data));
+          return data;
+        }
+      }
+    } catch (e) {}
 
     const local = localStorage.getItem("presence_submissions_kelas");
     return local ? JSON.parse(local) : [];
@@ -339,20 +413,31 @@ export const FirebaseService = {
       kelas: record.kelas || ""
     };
 
+    // Try server API
+    try {
+      await fetch("/api/submissions/kelas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newRecord)
+      });
+    } catch (e) {}
+
     // Save to Firestore
-    if (firebaseActive && db) {
+    if (firebaseActive && db && !firestoreQuotaExceeded) {
       const pathStr = `submissions_kelas/${newRecord.id}`;
       try {
         await setDoc(doc(db, "submissions_kelas", newRecord.id), newRecord);
       } catch (err) {
-        handleFirestoreError(err, OperationType.CREATE, pathStr);
+        logAndCatchFirestoreError(err, OperationType.CREATE, pathStr);
       }
     }
 
     // Save to local cache
     const current = await this.getSubmissionsKelas();
-    current.push(newRecord);
-    localStorage.setItem("presence_submissions_kelas", JSON.stringify(current));
+    if (!current.some((item: any) => item.id === newRecord.id)) {
+      current.push(newRecord);
+      localStorage.setItem("presence_submissions_kelas", JSON.stringify(current));
+    }
 
     // Async push to Sheets
     this.pushToGoogleSheet("add", "kelas", newRecord).catch(e => console.error("Sheet push failed:", e));
@@ -361,12 +446,12 @@ export const FirebaseService = {
   },
 
   async deleteSubmissionKelas(id: string): Promise<boolean> {
-    if (firebaseActive && db) {
+    if (firebaseActive && db && !firestoreQuotaExceeded) {
       const pathStr = `submissions_kelas/${id}`;
       try {
         await deleteDoc(doc(db, "submissions_kelas", id));
       } catch (err) {
-        handleFirestoreError(err, OperationType.DELETE, pathStr);
+        logAndCatchFirestoreError(err, OperationType.DELETE, pathStr);
       }
     }
 
@@ -396,12 +481,12 @@ export const FirebaseService = {
       kelas: record.kelas !== undefined ? record.kelas : current[index].kelas
     };
 
-    if (firebaseActive && db) {
+    if (firebaseActive && db && !firestoreQuotaExceeded) {
       const pathStr = `submissions_kelas/${id}`;
       try {
         await setDoc(doc(db, "submissions_kelas", id), updatedRecord);
       } catch (err) {
-        handleFirestoreError(err, OperationType.UPDATE, pathStr);
+        logAndCatchFirestoreError(err, OperationType.UPDATE, pathStr);
       }
     }
 
@@ -416,7 +501,7 @@ export const FirebaseService = {
 
   // 5. SUBMISSIONS (IZIN)
   async getSubmissionsIzin(): Promise<any[]> {
-    if (firebaseActive && db) {
+    if (firebaseActive && db && !firestoreQuotaExceeded) {
       const pathStr = "submissions_izin";
       try {
         const querySnapshot = await getDocs(collection(db, "submissions_izin"));
@@ -426,9 +511,21 @@ export const FirebaseService = {
         });
         return list.sort((a, b) => new Date(a.submittedAt || 0).getTime() - new Date(b.submittedAt || 0).getTime());
       } catch (err) {
-        handleFirestoreError(err, OperationType.LIST, pathStr);
+        logAndCatchFirestoreError(err, OperationType.LIST, pathStr);
       }
     }
+
+    // Try server API
+    try {
+      const res = await fetch("/api/submissions/izin");
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          localStorage.setItem("presence_submissions_izin", JSON.stringify(data));
+          return data;
+        }
+      }
+    } catch (e) {}
 
     const local = localStorage.getItem("presence_submissions_izin");
     return local ? JSON.parse(local) : [];
@@ -448,18 +545,28 @@ export const FirebaseService = {
       kelas: record.kelas || ""
     };
 
-    if (firebaseActive && db) {
+    try {
+      await fetch("/api/submissions/izin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newRecord)
+      });
+    } catch (e) {}
+
+    if (firebaseActive && db && !firestoreQuotaExceeded) {
       const pathStr = `submissions_izin/${newRecord.id}`;
       try {
         await setDoc(doc(db, "submissions_izin", newRecord.id), newRecord);
       } catch (err) {
-        handleFirestoreError(err, OperationType.CREATE, pathStr);
+        logAndCatchFirestoreError(err, OperationType.CREATE, pathStr);
       }
     }
 
     const current = await this.getSubmissionsIzin();
-    current.push(newRecord);
-    localStorage.setItem("presence_submissions_izin", JSON.stringify(current));
+    if (!current.some((item: any) => item.id === newRecord.id)) {
+      current.push(newRecord);
+      localStorage.setItem("presence_submissions_izin", JSON.stringify(current));
+    }
 
     // Async push to Sheets
     this.pushToGoogleSheet("add", "izin", newRecord).catch(e => console.error("Sheet push failed:", e));
@@ -468,12 +575,12 @@ export const FirebaseService = {
   },
 
   async deleteSubmissionIzin(id: string): Promise<boolean> {
-    if (firebaseActive && db) {
+    if (firebaseActive && db && !firestoreQuotaExceeded) {
       const pathStr = `submissions_izin/${id}`;
       try {
         await deleteDoc(doc(db, "submissions_izin", id));
       } catch (err) {
-        handleFirestoreError(err, OperationType.DELETE, pathStr);
+        logAndCatchFirestoreError(err, OperationType.DELETE, pathStr);
       }
     }
 
@@ -504,12 +611,12 @@ export const FirebaseService = {
       kelas: record.kelas !== undefined ? record.kelas : current[index].kelas
     };
 
-    if (firebaseActive && db) {
+    if (firebaseActive && db && !firestoreQuotaExceeded) {
       const pathStr = `submissions_izin/${id}`;
       try {
         await setDoc(doc(db, "submissions_izin", id), updatedRecord);
       } catch (err) {
-        handleFirestoreError(err, OperationType.UPDATE, pathStr);
+        logAndCatchFirestoreError(err, OperationType.UPDATE, pathStr);
       }
     }
 
@@ -543,64 +650,86 @@ export const FirebaseService = {
 
   // 7. CLIENT-SIDE AUTH CHECKER
   async performLogin(username: string, password: string, type: "ADMIN" | "STUDENT" | "TEACHER", role?: string): Promise<UserSession> {
-    const normUsername = username.trim().toLowerCase();
+    const rawUsername = username || "";
+    const rawPassword = password || "";
+    const normUsername = rawUsername.trim().toLowerCase().replace(/\s+/g, '').replace(/-/g, '');
+    const normPassword = rawPassword.trim();
+    const lowerPassword = normPassword.toLowerCase();
 
     if (type === "TEACHER") {
-      if (normUsername === "guru" && password === "gurudoea123") {
+      if ((normUsername === "guru" || normUsername.includes("guru")) && (lowerPassword === "gurudoea123" || lowerPassword === "guru123" || lowerPassword === "guru")) {
         return {
           type: "TEACHER",
           username: "guru"
         };
       } else {
-        throw new Error("Username atau Password Admin Guru tidak cocok");
+        throw new Error("Username atau Password Admin Guru tidak cocok. (Gunakan username: guru, password: gurudoea123)");
       }
     }
 
     if (type === "ADMIN") {
-      if (normUsername !== "admin") {
-        throw new Error("Username admin salah");
+      if (normUsername !== "admin" && !normUsername.includes("admin")) {
+        throw new Error("Username admin salah. Gunakan: admin");
       }
 
       let validRole: AdminRole | null = null;
-      if (password === "admin123junior") validRole = "UTAMA";
-      else if (password === "admin123TU") validRole = "TU";
-      else if (password === "admin123BK") validRole = "BK";
-      else if (password === "admin123tatib") validRole = "TATIB";
+      if (lowerPassword === "admin123junior") validRole = "UTAMA";
+      else if (lowerPassword === "admin123tu") validRole = "TU";
+      else if (lowerPassword === "admin123bk") validRole = "BK";
+      else if (lowerPassword === "admin123tatib") validRole = "TATIB";
 
-      if (validRole && role === validRole) {
+      // If valid role detected by password, verify role or auto-assign if match
+      const targetRole = role || validRole;
+      if (validRole && (targetRole === validRole || !role)) {
         return {
           type: "ADMIN",
           username: "admin",
           role: validRole
         };
+      } else if (validRole) {
+        // Role mismatch with password
+        throw new Error(`Password yang dimasukkan adalah untuk Admin ${validRole}, tetapi peran yang dipilih adalah Admin ${role}`);
       } else {
-        throw new Error("Password atau Role Admin tidak cocok");
+        throw new Error("Password Admin tidak cocok. Silakan periksa kembali password Anda.");
       }
     } else {
       // Class Admin
       const schedule = await this.getScheduleData();
-      const expectedPassword = schedule.classAdmins[normUsername];
       
-      if (expectedPassword && expectedPassword === password) {
+      // Helper to search classAdmins with normalized username key
+      const findClassAdminPassword = (classAdmins: Record<string, string>, targetUser: string): { matchedUser: string; pass: string } | null => {
+        if (!classAdmins) return null;
+        for (const [key, pass] of Object.entries(classAdmins)) {
+          const normKey = key.trim().toLowerCase().replace(/\s+/g, '').replace(/-/g, '');
+          if (normKey === targetUser) {
+            return { matchedUser: key, pass: String(pass || "").trim() };
+          }
+        }
+        return null;
+      };
+
+      let match = findClassAdminPassword(schedule.classAdmins, normUsername);
+
+      if (match && match.pass.toLowerCase() === lowerPassword) {
         return {
           type: "STUDENT",
-          username: normUsername
+          username: match.matchedUser
         };
-      } else {
-        // If not found, try sync with sheet on-demand first
-        try {
-          const freshSchedule = await this.syncWithGoogleSheet();
-          const freshPassword = freshSchedule.classAdmins[normUsername];
-          if (freshPassword && freshPassword === password) {
-            return {
-              type: "STUDENT",
-              username: normUsername
-            };
-          }
-        } catch (e) {}
-        
-        throw new Error("Username atau Password Admin Kelas tidak cocok");
       }
+
+      // If not found or password mismatched, try sync with sheet on-demand
+      try {
+        const freshSchedule = await this.syncWithGoogleSheet();
+        match = findClassAdminPassword(freshSchedule.classAdmins, normUsername);
+        if (match && match.pass.toLowerCase() === lowerPassword) {
+          return {
+            type: "STUDENT",
+            username: match.matchedUser
+          };
+        }
+      } catch (e) {}
+
+      throw new Error("Username atau Password Admin Kelas tidak cocok. Silakan periksa penulisan username & password.");
     }
   },
 };

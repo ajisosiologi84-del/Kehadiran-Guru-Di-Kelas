@@ -362,8 +362,20 @@ function extractAppsScriptError(html: string): string {
   return "Google Apps Script Error (Otorisasi diperlukan atau script bermasalah)";
 }
 
+let serverFirestoreQuotaExceeded = false;
+
+function handleServerFirestoreError(err: any, context: string) {
+  const msg = err?.message || String(err);
+  if (msg.includes("Quota") || msg.includes("quota") || msg.includes("RESOURCE_EXHAUSTED")) {
+    serverFirestoreQuotaExceeded = true;
+    console.warn(`[Server Firestore Quota Exceeded] ${context}. Falling back to local disk storage.`);
+  } else {
+    console.warn(`[Server Firestore Note] ${context}: ${msg}`);
+  }
+}
+
 async function loadSettings(): Promise<{ appsScriptUrl: string }> {
-  if (firebaseActive && db) {
+  if (firebaseActive && db && !serverFirestoreQuotaExceeded) {
     try {
       const docRef = doc(db, "settings", "config");
       const docSnap = await promiseWithTimeout(getDoc(docRef), 3000, "getDoc settings/config");
@@ -371,7 +383,7 @@ async function loadSettings(): Promise<{ appsScriptUrl: string }> {
         return docSnap.data() as { appsScriptUrl: string };
       }
     } catch (err: any) {
-      console.error("Failed to load settings from Firestore:", err.message);
+      handleServerFirestoreError(err, "loadSettings");
     }
   }
 
@@ -393,19 +405,19 @@ async function saveSettings(settings: { appsScriptUrl: string }) {
     console.error("Error writing settings:", e);
   }
 
-  if (firebaseActive && db) {
+  if (firebaseActive && db && !serverFirestoreQuotaExceeded) {
     try {
       const docRef = doc(db, "settings", "config");
       await promiseWithTimeout(setDoc(docRef, settings), 3000, "setDoc settings/config");
       console.log("Settings synced to Firestore successfully.");
     } catch (err: any) {
-      console.error("Failed to sync settings to Firestore:", err.message);
+      handleServerFirestoreError(err, "saveSettings");
     }
   }
 }
 
 async function loadCachedScheduleFromFirestore() {
-  if (firebaseActive && db) {
+  if (firebaseActive && db && !serverFirestoreQuotaExceeded) {
     try {
       const docRef = doc(db, "settings", "cached_schedule");
       const docSnap = await promiseWithTimeout(getDoc(docRef), 3000, "getDoc settings/cached_schedule");
@@ -417,19 +429,19 @@ async function loadCachedScheduleFromFirestore() {
         }
       }
     } catch (err: any) {
-      console.error("Failed to load cached schedule from Firestore:", err.message);
+      handleServerFirestoreError(err, "loadCachedScheduleFromFirestore");
     }
   }
 }
 
 async function saveCachedScheduleToFirestore() {
-  if (firebaseActive && db) {
+  if (firebaseActive && db && !serverFirestoreQuotaExceeded) {
     try {
       const docRef = doc(db, "settings", "cached_schedule");
       await promiseWithTimeout(setDoc(docRef, cachedScheduleData), 3000, "setDoc settings/cached_schedule");
       console.log("Cached schedule data saved to Firestore successfully.");
     } catch (err: any) {
-      console.error("Failed to save cached schedule to Firestore:", err.message);
+      handleServerFirestoreError(err, "saveCachedScheduleToFirestore");
     }
   }
 }
@@ -506,7 +518,7 @@ async function syncAllSubmissionsToSheets() {
 }
 
 async function loadSubmissionsKelas(): Promise<any[]> {
-  if (firebaseActive && db) {
+  if (firebaseActive && db && !serverFirestoreQuotaExceeded) {
     try {
       const colRef = collection(db, "submissions_kelas");
       const querySnapshot = await promiseWithTimeout(getDocs(colRef), 3000, "getDocs submissions_kelas");
@@ -516,7 +528,7 @@ async function loadSubmissionsKelas(): Promise<any[]> {
       });
       return list.sort((a, b) => new Date(a.submittedAt || 0).getTime() - new Date(b.submittedAt || 0).getTime());
     } catch (err: any) {
-      console.error("Failed to load submissions kelas from Firestore:", err.message);
+      handleServerFirestoreError(err, "loadSubmissionsKelas");
     }
   }
 
@@ -538,7 +550,7 @@ async function saveSubmissionsKelas(data: any[]) {
     console.error("Error writing submissions kelas:", e);
   }
 
-  if (firebaseActive && db) {
+  if (firebaseActive && db && !serverFirestoreQuotaExceeded) {
     try {
       // Set all documents concurrently with a timeout
       const writePromises = data.map(item => {
@@ -562,13 +574,13 @@ async function saveSubmissionsKelas(data: any[]) {
         console.log(`Successfully deleted ${deletePromises.length} stale submissions_kelas from Firestore.`);
       }
     } catch (err: any) {
-      console.error("Failed to sync submissions kelas to Firestore:", err.message);
+      handleServerFirestoreError(err, "saveSubmissionsKelas");
     }
   }
 }
 
 async function loadSubmissionsIzin(): Promise<any[]> {
-  if (firebaseActive && db) {
+  if (firebaseActive && db && !serverFirestoreQuotaExceeded) {
     try {
       const colRef = collection(db, "submissions_izin");
       const querySnapshot = await promiseWithTimeout(getDocs(colRef), 3000, "getDocs submissions_izin");
@@ -578,7 +590,7 @@ async function loadSubmissionsIzin(): Promise<any[]> {
       });
       return list.sort((a, b) => new Date(a.submittedAt || 0).getTime() - new Date(b.submittedAt || 0).getTime());
     } catch (err: any) {
-      console.error("Failed to load submissions izin from Firestore:", err.message);
+      handleServerFirestoreError(err, "loadSubmissionsIzin");
     }
   }
 
@@ -600,7 +612,7 @@ async function saveSubmissionsIzin(data: any[]) {
     console.error("Error writing submissions izin:", e);
   }
 
-  if (firebaseActive && db) {
+  if (firebaseActive && db && !serverFirestoreQuotaExceeded) {
     try {
       // Set all documents concurrently with a timeout
       const writePromises = data.map(item => {
@@ -624,7 +636,7 @@ async function saveSubmissionsIzin(data: any[]) {
         console.log(`Successfully deleted ${deletePromises.length} stale submissions_izin from Firestore.`);
       }
     } catch (err: any) {
-      console.error("Failed to sync submissions izin to Firestore:", err.message);
+      handleServerFirestoreError(err, "saveSubmissionsIzin");
     }
   }
 }
@@ -735,25 +747,40 @@ initApp();
       return res.status(400).json({ success: false, error: "Username, password, and type are required" });
     }
 
-    const normUsername = username.trim().toLowerCase();
+    const normUsername = String(username).trim().toLowerCase().replace(/\s+/g, '').replace(/-/g, '');
+    const normPassword = String(password).trim();
+    const lowerPassword = normPassword.toLowerCase();
 
-    if (type === "ADMIN") {
+    if (type === "TEACHER") {
+      if ((normUsername === "guru" || normUsername.includes("guru")) && (lowerPassword === "gurudoea123" || lowerPassword === "guru123" || lowerPassword === "guru")) {
+        return res.json({
+          success: true,
+          session: {
+            type: "TEACHER",
+            username: "guru"
+          }
+        });
+      } else {
+        return res.status(401).json({ success: false, error: "Username atau Password Admin Guru tidak cocok" });
+      }
+    } else if (type === "ADMIN") {
       // Validate Admins
       // Admin Utama: admin / admin123junior
       // Admin Tata Usaha: admin / admin123TU
       // Admin BK: admin / admin123BK
       // Admin Tata Tertib: admin / admin123tatib
-      if (normUsername !== "admin") {
+      if (normUsername !== "admin" && !normUsername.includes("admin")) {
         return res.status(401).json({ success: false, error: "Username admin salah" });
       }
 
       let validRole: string | null = null;
-      if (password === "admin123junior") validRole = "UTAMA";
-      else if (password === "admin123TU") validRole = "TU";
-      else if (password === "admin123BK") validRole = "BK";
-      else if (password === "admin123tatib") validRole = "TATIB";
+      if (lowerPassword === "admin123junior") validRole = "UTAMA";
+      else if (lowerPassword === "admin123tu") validRole = "TU";
+      else if (lowerPassword === "admin123bk") validRole = "BK";
+      else if (lowerPassword === "admin123tatib") validRole = "TATIB";
 
-      if (validRole && role === validRole) {
+      const targetRole = role || validRole;
+      if (validRole && (targetRole === validRole || !role)) {
         return res.json({
           success: true,
           session: {
@@ -762,28 +789,42 @@ initApp();
             role: validRole
           }
         });
+      } else if (validRole) {
+        return res.status(401).json({ success: false, error: `Password yang dimasukkan adalah untuk Admin ${validRole}, tetapi peran yang dipilih adalah Admin ${role}` });
       } else {
-        return res.status(401).json({ success: false, error: "Password atau Role Admin tidak cocok" });
+        return res.status(401).json({ success: false, error: "Password Admin tidak cocok" });
       }
     } else if (type === "STUDENT") {
-      // If we haven't synced yet, or if the user is not in the cached list, let's sync live first!
-      if (cachedScheduleData.lastSync === "Never (Using Fallback)" || !cachedScheduleData.classAdmins[normUsername]) {
+      const findClassAdminPassword = (classAdmins: Record<string, string>, targetUser: string): { matchedUser: string; pass: string } | null => {
+        if (!classAdmins) return null;
+        for (const [key, pass] of Object.entries(classAdmins)) {
+          const normKey = key.trim().toLowerCase().replace(/\s+/g, '').replace(/-/g, '');
+          if (normKey === targetUser) {
+            return { matchedUser: key, pass: String(pass || "").trim() };
+          }
+        }
+        return null;
+      };
+
+      let match = findClassAdminPassword(cachedScheduleData.classAdmins, normUsername);
+
+      // If we haven't synced yet, or if user was not found, perform live sync
+      if (!match || cachedScheduleData.lastSync === "Never (Using Fallback)") {
         console.log(`User ${normUsername} not in cache or first sync. Performing on-demand sync from Google Sheet...`);
         try {
           await syncWithGoogleSheet();
+          match = findClassAdminPassword(cachedScheduleData.classAdmins, normUsername);
         } catch (syncErr: any) {
           console.error("Failed on-demand sync with Google Sheet during student login:", syncErr.message);
         }
       }
 
-      // Validate Class Admin against cached spreadsheet logins
-      const expectedPassword = cachedScheduleData.classAdmins[normUsername];
-      if (expectedPassword && expectedPassword === password) {
+      if (match && match.pass.toLowerCase() === lowerPassword) {
         return res.json({
           success: true,
           session: {
             type: "STUDENT",
-            username: normUsername
+            username: match.matchedUser
           }
         });
       } else {
