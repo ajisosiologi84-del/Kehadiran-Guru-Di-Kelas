@@ -229,6 +229,29 @@ function logAndCatchFirestoreError(err: unknown, operationType: OperationType, p
 export const FirebaseService = {
   isConfigured: () => firebaseActive,
 
+  // Helper for direct Google Sheet CSV fetch on client
+  async fetchSheetCsvDirect(sheetName: string): Promise<string | null> {
+    try {
+      let spreadsheetId = "1I-L5m4C7jOK-3y2hKnzhQEb9GDFzqot7YylhvooC7AM";
+      const settings = await this.getSettings().catch(() => null);
+      if (settings && settings.appsScriptUrl) {
+        const match = settings.appsScriptUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+        if (match && match[1]) spreadsheetId = match[1];
+      }
+      const url = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=${sheetName}`;
+      const res = await fetchWithTimeout(url, {}, 5000);
+      if (res.ok) {
+        const text = await res.text();
+        if (!text.trim().startsWith("<!DOCTYPE") && !text.trim().startsWith("<html")) {
+          return text;
+        }
+      }
+    } catch (e) {
+      console.warn(`Direct client CSV fetch for ${sheetName} failed:`, e);
+    }
+    return null;
+  },
+
   // 1. SETTINGS
   async getSettings() {
     // 1. Check local storage
@@ -312,13 +335,13 @@ export const FirebaseService = {
 
   // 2. SCHEDULE & CLASS ADMINS
   async getScheduleData(): Promise<ScheduleData> {
-    // 1. Check local storage for immediate result
+    // 1. Check local storage for immediate result (only if not fallback)
     const local = localStorage.getItem("presence_schedule");
     let localSched: ScheduleData | null = null;
     if (local) {
       try {
         const parsed = JSON.parse(local);
-        if (parsed && parsed.namaGuruList && parsed.namaGuruList.length > 0) {
+        if (parsed && parsed.namaGuruList && parsed.namaGuruList.length > 0 && parsed.lastSync && parsed.lastSync !== "Never (Using Fallback)") {
           localSched = parsed;
         }
       } catch (e) {}
@@ -331,7 +354,7 @@ export const FirebaseService = {
         const snap = await promiseWithTimeout(getDoc(doc(db, "settings", "cached_schedule")), 2000, "getDoc cached_schedule");
         if (snap.exists()) {
           const data = snap.data() as ScheduleData;
-          if (data && data.namaGuruList && data.namaGuruList.length > 0) {
+          if (data && data.namaGuruList && data.namaGuruList.length > 0 && data.lastSync && data.lastSync !== "Never (Using Fallback)") {
             localStorage.setItem("presence_schedule", JSON.stringify(data));
             return data;
           }
@@ -346,19 +369,70 @@ export const FirebaseService = {
       const res = await fetchWithTimeout("/api/schedule", {}, 2500);
       if (res.ok) {
         const data = await res.json();
-        if (data && data.namaGuruList && data.namaGuruList.length > 0) {
+        if (data && data.namaGuruList && data.namaGuruList.length > 0 && data.lastSync && data.lastSync !== "Never (Using Fallback)") {
           localStorage.setItem("presence_schedule", JSON.stringify(data));
           return data;
         }
       }
     } catch (e) {}
 
-    // 4. Return local cached schedule if available
+    // 4. Return local cached schedule if valid and not fallback
     if (localSched) {
       return localSched;
     }
 
-    // 5. Default fallback
+    // 5. Direct client fetch from Google Sheets CSV
+    try {
+      console.log("Fetching schedule CSV directly on client from Google Sheets...");
+      const csvText = await this.fetchSheetCsvDirect("DATA_UTAMA");
+      if (csvText) {
+        const lines = csvText.split(/\r?\n/);
+        if (lines.length > 1) {
+          const namaGuruSet = new Set<string>();
+          const mataPelajaranSet = new Set<string>();
+          const jamKeSet = new Set<string>();
+          const classAdminsMap: Record<string, string> = {};
+
+          for (let i = 1; i < lines.length; i++) {
+            if (!lines[i].trim()) continue;
+            const columns = parseCSVLine(lines[i]);
+            if (columns[2]) {
+              const val = columns[2].replace(/^"|"$/g, '').trim();
+              if (val) namaGuruSet.add(val);
+            }
+            if (columns[3]) {
+              const val = columns[3].replace(/^"|"$/g, '').trim();
+              if (val) mataPelajaranSet.add(val);
+            }
+            if (columns[4]) {
+              const val = columns[4].replace(/^"|"$/g, '').trim();
+              if (val) jamKeSet.add(val);
+            }
+            if (columns[6]) {
+              const username = columns[6].replace(/^"|"$/g, '').trim().toLowerCase();
+              const password = columns[7] ? columns[7].replace(/^"|"$/g, '').trim() : "adminkelas2026";
+              if (username) classAdminsMap[username] = password;
+            }
+          }
+
+          if (namaGuruSet.size > 0) {
+            const freshSched: ScheduleData = {
+              namaGuruList: Array.from(namaGuruSet),
+              mataPelajaranList: mataPelajaranSet.size > 0 ? Array.from(mataPelajaranSet) : FALLBACK_MATA_PELAJARAN,
+              jamKeList: jamKeSet.size > 0 ? Array.from(jamKeSet) : FALLBACK_JAM_KE,
+              classAdmins: Object.keys(classAdminsMap).length > 0 ? classAdminsMap : FALLBACK_CLASS_ADMINS,
+              lastSync: new Date().toISOString()
+            };
+            this.saveScheduleData(freshSched);
+            return freshSched;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Client CSV schedule fetch error:", err);
+    }
+
+    // 6. Default fallback
     return {
       namaGuruList: FALLBACK_NAMA_GURU,
       mataPelajaranList: FALLBACK_MATA_PELAJARAN,
@@ -416,6 +490,7 @@ export const FirebaseService = {
           list.push(docSnap.data());
         });
         if (list.length > 0) {
+          localStorage.setItem("presence_submissions_kelas", JSON.stringify(list));
           return list.sort((a, b) => new Date(a.submittedAt || 0).getTime() - new Date(b.submittedAt || 0).getTime());
         }
       } catch (err) {
@@ -425,7 +500,7 @@ export const FirebaseService = {
 
     // Try server API
     try {
-      const res = await fetch("/api/submissions/kelas");
+      const res = await fetchWithTimeout("/api/submissions/kelas", {}, 2500);
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data) && data.length > 0) {
@@ -434,6 +509,60 @@ export const FirebaseService = {
         }
       }
     } catch (e) {}
+
+    // Try direct CSV fetch on client
+    try {
+      console.log("Fetching class submissions directly from Google Sheets CSV on client...");
+      for (const sheetName of ["DATA_INPUT_SISWA", "DATA_INPUT_KELAS"]) {
+        const csvText = await this.fetchSheetCsvDirect(sheetName);
+        if (csvText) {
+          const lines = csvText.split(/\r?\n/);
+          if (lines.length > 1) {
+            const fetchedList: any[] = [];
+            for (let i = 1; i < lines.length; i++) {
+              if (!lines[i].trim()) continue;
+              const cols = parseCSVLine(lines[i]);
+              const id = cols[0] ? cols[0].replace(/^"|"$/g, '').trim() : "";
+              const hari = cols[1] ? cols[1].replace(/^"|"$/g, '').trim() : "";
+              const tanggal = cols[2] ? cols[2].replace(/^"|"$/g, '').trim() : "";
+              const kelas = cols[3] ? cols[3].replace(/^"|"$/g, '').trim() : "";
+              const namaGuru = cols[4] ? cols[4].replace(/^"|"$/g, '').trim() : "";
+              const mataPelajaran = cols[5] ? cols[5].replace(/^"|"$/g, '').trim() : "";
+              const jamKe = cols[6] ? cols[6].replace(/^"|"$/g, '').trim() : "1";
+              const keteranganKehadiran = cols[7] ? cols[7].replace(/^"|"$/g, '').trim() : "Hadir";
+              const submittedBy = cols[8] ? cols[8].replace(/^"|"$/g, '').trim() : "Google Sheet";
+              const submittedAt = cols[9] ? cols[9].replace(/^"|"$/g, '').trim() : new Date().toISOString();
+
+              if (namaGuru && namaGuru.toLowerCase() !== "nama guru") {
+                fetchedList.push({
+                  id: id || "gs_" + Math.random().toString(36).substring(2, 9),
+                  hari: hari || "Senin",
+                  tanggal: tanggal || new Date().toISOString().split("T")[0],
+                  kelas: kelas || "-",
+                  namaGuru,
+                  mataPelajaran: mataPelajaran || "-",
+                  jamKe: jamKe || "1",
+                  keteranganKehadiran,
+                  submittedBy,
+                  submittedAt
+                });
+              }
+            }
+            if (fetchedList.length > 0) {
+              localStorage.setItem("presence_submissions_kelas", JSON.stringify(fetchedList));
+              if (firebaseActive && db && !firestoreQuotaExceeded) {
+                fetchedList.forEach(item => {
+                  setDoc(doc(db, "submissions_kelas", item.id), item).catch(() => {});
+                });
+              }
+              return fetchedList;
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Direct CSV class submissions fetch failed:", err);
+    }
 
     const local = localStorage.getItem("presence_submissions_kelas");
     return local ? JSON.parse(local) : [];
@@ -654,6 +783,7 @@ export const FirebaseService = {
           list.push(docSnap.data());
         });
         if (list.length > 0) {
+          localStorage.setItem("presence_submissions_izin", JSON.stringify(list));
           return list.sort((a, b) => new Date(a.submittedAt || 0).getTime() - new Date(b.submittedAt || 0).getTime());
         }
       } catch (err) {
@@ -663,7 +793,7 @@ export const FirebaseService = {
 
     // Try server API
     try {
-      const res = await fetch("/api/submissions/izin");
+      const res = await fetchWithTimeout("/api/submissions/izin", {}, 2500);
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data) && data.length > 0) {
@@ -672,6 +802,58 @@ export const FirebaseService = {
         }
       }
     } catch (e) {}
+
+    // Try direct CSV fetch on client
+    try {
+      console.log("Fetching teacher leave submissions directly from Google Sheets CSV on client...");
+      const csvText = await this.fetchSheetCsvDirect("DATA_INPUT_IZIN_GURU");
+      if (csvText) {
+        const lines = csvText.split(/\r?\n/);
+        if (lines.length > 1) {
+          const fetchedList: any[] = [];
+          for (let i = 1; i < lines.length; i++) {
+            if (!lines[i].trim()) continue;
+            const cols = parseCSVLine(lines[i]);
+            const id = cols[0] ? cols[0].replace(/^"|"$/g, '').trim() : "";
+            const hari = cols[1] ? cols[1].replace(/^"|"$/g, '').trim() : "";
+            const tanggal = cols[2] ? cols[2].replace(/^"|"$/g, '').trim() : "";
+            const kelas = cols[3] ? cols[3].replace(/^"|"$/g, '').trim() : "";
+            const namaGuru = cols[4] ? cols[4].replace(/^"|"$/g, '').trim() : "";
+            const mataPelajaran = cols[5] ? cols[5].replace(/^"|"$/g, '').trim() : "";
+            const jamKe = cols[6] ? cols[6].replace(/^"|"$/g, '').trim() : "1";
+            const keteranganKehadiran = cols[7] ? cols[7].replace(/^"|"$/g, '').trim() : "Izin";
+            const keteranganIzinGuru = cols[8] ? cols[8].replace(/^"|"$/g, '').trim() : "-";
+            const submittedAt = cols[9] ? cols[9].replace(/^"|"$/g, '').trim() : new Date().toISOString();
+
+            if (namaGuru && namaGuru.toLowerCase() !== "nama guru") {
+              fetchedList.push({
+                id: id || "gsi_" + Math.random().toString(36).substring(2, 9),
+                hari: hari || "Senin",
+                tanggal: tanggal || new Date().toISOString().split("T")[0],
+                kelas: kelas || "-",
+                namaGuru,
+                mataPelajaran: mataPelajaran || "-",
+                jamKe: jamKe || "1",
+                keteranganKehadiran,
+                keteranganIzinGuru,
+                submittedAt
+              });
+            }
+          }
+          if (fetchedList.length > 0) {
+            localStorage.setItem("presence_submissions_izin", JSON.stringify(fetchedList));
+            if (firebaseActive && db && !firestoreQuotaExceeded) {
+              fetchedList.forEach(item => {
+                setDoc(doc(db, "submissions_izin", item.id), item).catch(() => {});
+              });
+            }
+            return fetchedList;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Direct CSV leave submissions fetch failed:", err);
+    }
 
     const local = localStorage.getItem("presence_submissions_izin");
     return local ? JSON.parse(local) : [];

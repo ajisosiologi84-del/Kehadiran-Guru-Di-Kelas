@@ -213,7 +213,7 @@ async function syncWithGoogleSheet() {
       console.log("Syncing via Apps Script Web App URL...");
       try {
         const getUrl = `${rawUrl}${rawUrl.includes('?') ? '&' : '?'}action=get_all`;
-        let response = await fetchWithTimeout(getUrl, { method: "GET", redirect: "follow" }, 15000).catch(() => null);
+        let response = await fetchWithTimeout(getUrl, { method: "GET", redirect: "follow" }, 3500).catch(() => null);
 
         if (!response || !response.ok) {
           response = await fetchWithTimeout(rawUrl, {
@@ -221,7 +221,7 @@ async function syncWithGoogleSheet() {
             headers: { "Content-Type": "text/plain;charset=utf-8" },
             body: JSON.stringify({ action: "get_all" }),
             redirect: "follow"
-          }, 15000).catch(() => null);
+          }, 3500).catch(() => null);
         }
 
         if (response && response.ok) {
@@ -258,7 +258,7 @@ async function syncWithGoogleSheet() {
       console.log(`Fetching schedule CSV directly from Spreadsheet ID: ${spreadsheetId}...`);
       const mainCsvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=DATA_UTAMA`;
       try {
-        const response = await fetchWithTimeout(mainCsvUrl, {}, 15000);
+        const response = await fetchWithTimeout(mainCsvUrl, {}, 3500);
         if (response.ok) {
           const text = await response.text();
           const lines = text.split(/\r?\n/);
@@ -313,7 +313,7 @@ async function syncWithGoogleSheet() {
       for (const sheetName of trySheetsSiswa) {
         const siswaCsvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=${sheetName}`;
         try {
-          const resSiswa = await fetchWithTimeout(siswaCsvUrl, {}, 10000);
+          const resSiswa = await fetchWithTimeout(siswaCsvUrl, {}, 3500);
           if (resSiswa.ok) {
             const textSiswa = await resSiswa.text();
             if (!textSiswa.trim().startsWith("<!DOCTYPE") && !textSiswa.trim().startsWith("<html")) {
@@ -361,7 +361,7 @@ async function syncWithGoogleSheet() {
     if (fetchedIzinSubmissions.length === 0) {
       const izinCsvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=DATA_INPUT_IZIN_GURU`;
       try {
-        const resIzin = await fetchWithTimeout(izinCsvUrl, {}, 10000);
+        const resIzin = await fetchWithTimeout(izinCsvUrl, {}, 3500);
         if (resIzin.ok) {
           const textIzin = await resIzin.text();
           if (!textIzin.trim().startsWith("<!DOCTYPE") && !textIzin.trim().startsWith("<html")) {
