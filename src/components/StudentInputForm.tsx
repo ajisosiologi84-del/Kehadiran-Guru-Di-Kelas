@@ -5,7 +5,7 @@
 
 import { useState, useEffect, FormEvent } from "react";
 import { ScheduleData, StudentSubmission, KELAS_LIST, TeacherLeaveSubmission } from "../types";
-import { FirebaseService } from "../firebase";
+import { FirebaseService, FALLBACK_NAMA_GURU, FALLBACK_MATA_PELAJARAN, FALLBACK_JAM_KE } from "../firebase";
 import { ClipboardList, Calendar, User, BookOpen, Clock, FileCheck, CheckCircle2, AlertCircle, Layers, Megaphone, Filter, Info, Bell } from "lucide-react";
 
 interface StudentInputFormProps {
@@ -16,18 +16,43 @@ interface StudentInputFormProps {
 const HARI_LIST = ["Senin", "Selasa", "Rabu", "Kamis", "Jum'at", "Sabtu", "Minggu"];
 
 export default function StudentInputForm({ scheduleData, username }: StudentInputFormProps) {
+  // Safe lists with fallbacks
+  const guruList = (scheduleData && scheduleData.namaGuruList && scheduleData.namaGuruList.length > 0)
+    ? scheduleData.namaGuruList
+    : FALLBACK_NAMA_GURU;
+
+  const mapelList = (scheduleData && scheduleData.mataPelajaranList && scheduleData.mataPelajaranList.length > 0)
+    ? scheduleData.mataPelajaranList
+    : FALLBACK_MATA_PELAJARAN;
+
+  const jamList = (scheduleData && scheduleData.jamKeList && scheduleData.jamKeList.length > 0)
+    ? scheduleData.jamKeList
+    : FALLBACK_JAM_KE;
+
   // Pre-select based on username, e.g., "adminkelasx1" -> "X-1", "adminkelasxi5" -> "XI-5"
   const getDefaultKelas = (uname: string) => {
-    const match = uname.match(/adminkelas([a-z]+)(\d+)/);
-    if (match) {
-      const tingkat = match[1].toUpperCase(); // "X", "XI", "XII"
-      const nomor = match[2];
-      const parsedKelas = `${tingkat}-${nomor}`;
-      if (KELAS_LIST.includes(parsedKelas)) {
-        return parsedKelas;
-      }
+    if (!uname) return "X-1";
+    const clean = uname.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+    // Check for XII
+    const xiiMatch = clean.match(/(xii|12)[_\-]?(\d+)/);
+    if (xiiMatch) {
+      const target = `XII-${xiiMatch[2]}`;
+      if (KELAS_LIST.includes(target)) return target;
     }
-    return "X-1"; // fallback
+    // Check for XI
+    const xiMatch = clean.match(/(xi|11)[_\-]?(\d+)/);
+    if (xiMatch) {
+      const target = `XI-${xiMatch[2]}`;
+      if (KELAS_LIST.includes(target)) return target;
+    }
+    // Check for X
+    const xMatch = clean.match(/(x|10)[_\-]?(\d+)/);
+    if (xMatch) {
+      const target = `X-${xMatch[2]}`;
+      if (KELAS_LIST.includes(target)) return target;
+    }
+    return "X-1";
   };
 
   const [hari, setHari] = useState("Senin");
@@ -61,18 +86,12 @@ export default function StudentInputForm({ scheduleData, username }: StudentInpu
     };
     setHari(daysEngToInd[today.getDay()]);
 
-    // Set first default values if lists exist
-    if (scheduleData.namaGuruList && scheduleData.namaGuruList.length > 0) {
-      setSelectedGuru(scheduleData.namaGuruList[0]);
-    }
-    if (scheduleData.mataPelajaranList && scheduleData.mataPelajaranList.length > 0) {
-      setSelectedMapel(scheduleData.mataPelajaranList[0]);
-    }
-    if (scheduleData.jamKeList && scheduleData.jamKeList.length > 0) {
-      setSelectedJams([scheduleData.jamKeList[0]]);
-    }
+    const initialKelas = getDefaultKelas(username);
+    setSelectedKelas(initialKelas);
 
-    setSelectedKelas(getDefaultKelas(username));
+    if (guruList.length > 0) setSelectedGuru(guruList[0]);
+    if (mapelList.length > 0) setSelectedMapel(mapelList[0]);
+    if (jamList.length > 0) setSelectedJams([jamList[0]]);
 
     fetchMySubmissions();
     fetchRecentLeaves();
@@ -81,8 +100,7 @@ export default function StudentInputForm({ scheduleData, username }: StudentInpu
   const fetchRecentLeaves = async () => {
     try {
       const data = await FirebaseService.getSubmissionsIzin();
-      // Sort newest first
-      data.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+      data.sort((a, b) => new Date(b.submittedAt || 0).getTime() - new Date(a.submittedAt || 0).getTime());
       setRecentLeaves(data);
     } catch (e) {
       console.error("Gagal memuat info izin guru:", e);
@@ -92,10 +110,15 @@ export default function StudentInputForm({ scheduleData, username }: StudentInpu
   const fetchMySubmissions = async () => {
     try {
       const data = await FirebaseService.getSubmissionsKelas();
-      // Filter submissions done by this class admin
-      const filtered = data.filter(s => s.submittedBy === username);
-      // Sort newest first
-      filtered.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+      const filtered = data.filter(s => {
+        if (!s) return false;
+        const normSubBy = (s.submittedBy || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+        const normUser = (username || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+        const userMatch = normSubBy && normUser && (normSubBy === normUser || normSubBy.includes(normUser) || normUser.includes(normSubBy));
+        const classMatch = s.kelas && selectedKelas && s.kelas.trim().toLowerCase() === selectedKelas.trim().toLowerCase();
+        return userMatch || classMatch;
+      });
+      filtered.sort((a, b) => new Date(b.submittedAt || 0).getTime() - new Date(a.submittedAt || 0).getTime());
       setMySubmissions(filtered);
     } catch (e) {
       console.error("Gagal memuat riwayat penginputan:", e);
@@ -106,7 +129,10 @@ export default function StudentInputForm({ scheduleData, username }: StudentInpu
     e.preventDefault();
     setMessage(null);
 
-    if (!selectedGuru || !selectedMapel) {
+    const guruToSubmit = selectedGuru || (guruList.length > 0 ? guruList[0] : "");
+    const mapelToSubmit = selectedMapel || (mapelList.length > 0 ? mapelList[0] : "");
+
+    if (!guruToSubmit || !mapelToSubmit) {
       setMessage({ type: "error", text: "Silakan pilih Nama Guru dan Mata Pelajaran." });
       return;
     }
@@ -129,20 +155,21 @@ export default function StudentInputForm({ scheduleData, username }: StudentInpu
       await FirebaseService.addSubmissionKelas({
         hari,
         tanggal,
-        namaGuru: selectedGuru,
-        mataPelajaran: selectedMapel,
+        namaGuru: guruToSubmit,
+        mataPelajaran: mapelToSubmit,
         jamKe: jamKeString,
         keteranganKehadiran: keterangan,
-        submittedBy: username,
+        submittedBy: username || "adminkelas",
         kelas: selectedKelas
       });
 
       setMessage({
         type: "success",
-        text: `Berhasil melaporkan kehadiran Guru: ${selectedGuru} [${keterangan}]`
+        text: `Berhasil melaporkan kehadiran Guru: ${guruToSubmit} [${keterangan}]`
       });
-      fetchMySubmissions();
-      fetchRecentLeaves();
+
+      await fetchMySubmissions();
+      await fetchRecentLeaves();
     } catch (err: any) {
       console.error("Submission error:", err);
       setMessage({ type: "error", text: err.message || "Terjadi kesalahan saat mengirimkan data." });
@@ -319,7 +346,7 @@ export default function StudentInputForm({ scheduleData, username }: StudentInpu
                 className="w-full px-4 py-2.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-800 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
               >
                 <option value="">-- Pilih Guru --</option>
-                {scheduleData.namaGuruList.map((g) => (
+                {guruList.map((g) => (
                   <option key={g} value={g}>{g}</option>
                 ))}
               </select>
@@ -337,7 +364,7 @@ export default function StudentInputForm({ scheduleData, username }: StudentInpu
                 className="w-full px-4 py-2.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-800 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
               >
                 <option value="">-- Pilih Mata Pelajaran --</option>
-                {scheduleData.mataPelajaranList.map((m) => (
+                {mapelList.map((m) => (
                   <option key={m} value={m}>{m}</option>
                 ))}
               </select>
@@ -370,7 +397,7 @@ export default function StudentInputForm({ scheduleData, username }: StudentInpu
                   <Clock className="w-3.5 h-3.5 text-slate-400" /> Jam Ke- <span className="text-[10px] text-slate-400 font-normal">(Centang 1-4 jam)</span>
                 </label>
                 <div className="grid grid-cols-4 gap-1.5" id="student-jam-checkbox-group">
-                  {scheduleData.jamKeList.map((j) => {
+                  {jamList.map((j) => {
                     const isChecked = selectedJams.includes(j);
                     const isMaxReached = selectedJams.length >= 4 && !isChecked;
                     return (
