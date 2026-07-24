@@ -201,13 +201,21 @@ async function syncWithGoogleSheet() {
       if (trimmedUrl && !trimmedUrl.includes("docs.google.com/spreadsheets")) {
         console.log("Syncing schedule and class admins via Apps Script Web App...");
         try {
-          const response = await fetchWithTimeout(trimmedUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "get_schedule" })
-          }, 4000); // GSheet sync schedule fast timeout (4s)
-          
-          if (response.ok) {
+          // Try GET first as Apps Script handles GET redirects seamlessly
+          const getUrl = `${trimmedUrl}${trimmedUrl.includes('?') ? '&' : '?'}action=get_schedule`;
+          let response = await fetchWithTimeout(getUrl, { method: "GET", redirect: "follow" }, 15000).catch(() => null);
+
+          // Fallback to POST if GET fails
+          if (!response || !response.ok) {
+            response = await fetchWithTimeout(trimmedUrl, {
+              method: "POST",
+              headers: { "Content-Type": "text/plain;charset=utf-8" },
+              body: JSON.stringify({ action: "get_schedule" }),
+              redirect: "follow"
+            }, 15000).catch(() => null);
+          }
+
+          if (response && response.ok) {
             const text = await response.text();
             if (!text.trim().startsWith("<!DOCTYPE") && !text.trim().startsWith("<html")) {
               const result = JSON.parse(text);
@@ -222,13 +230,13 @@ async function syncWithGoogleSheet() {
                 console.log("Successfully synced schedule and class admins via Apps Script Web App!");
                 return;
               } else {
-                console.log("Apps Script did not return schedule data lists, falling back to direct spreadsheet CSV fetch.");
+                console.log("Apps Script output missing namaGuruList, falling back to direct spreadsheet CSV.");
               }
             } else {
-              console.log("Apps Script returned HTML, falling back to direct spreadsheet CSV fetch.");
+              console.log("Apps Script returned HTML, falling back to direct spreadsheet CSV.");
             }
           } else {
-            console.log(`Apps Script schedule sync request failed with status: ${response.status}, falling back to direct CSV fetch.`);
+            console.log(`Apps Script schedule sync request failed, falling back to direct CSV.`);
           }
         } catch (scriptErr: any) {
           console.log("Failed to fetch from Apps Script Web App, falling back to direct spreadsheet CSV:", scriptErr.message);
@@ -237,7 +245,7 @@ async function syncWithGoogleSheet() {
     }
 
     console.log("Fetching live data from Google Sheet CSV directly...");
-    const response = await fetchWithTimeout(SHEETS_URL, {}, 4000); // GSheet CSV download fast timeout (4s)
+    const response = await fetchWithTimeout(SHEETS_URL, {}, 15000); // 15s timeout for CSV download
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }

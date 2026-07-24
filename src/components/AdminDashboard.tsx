@@ -1648,9 +1648,15 @@ const APPS_SCRIPT_CODE = `function doPost(e) {
   lock.tryLock(10000); // Tunggu sampai 10 detik jika ada proses lain
   
   try {
-    var requestData = JSON.parse(e.postData.contents);
-    var action = requestData.action; // 'add', 'edit', 'delete', 'sync_all'
-    var type = requestData.type; // 'kelas' or 'izin'
+    var requestData = {};
+    if (e && e.postData && e.postData.contents) {
+      try {
+        requestData = JSON.parse(e.postData.contents);
+      } catch (errP) {}
+    }
+    
+    var action = requestData.action || (e && e.parameter ? e.parameter.action : null);
+    var type = requestData.type || (e && e.parameter ? e.parameter.type : null);
     var payload = requestData.payload;
     
     var doc = null;
