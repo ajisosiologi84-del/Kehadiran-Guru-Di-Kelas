@@ -631,42 +631,83 @@ export default function StudentInputForm({ scheduleData, username }: StudentInpu
               Belum ada laporan dari kelas Anda hari ini. Gunakan form di samping untuk mulai menginput.
             </div>
           ) : (
-            <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1" id="student-history-list">
+            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1" id="student-history-list">
               {mySubmissions.map((sub) => (
                 <div
                   key={sub.id}
-                  className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm space-y-2 relative hover:shadow-md transition-all duration-200"
+                  className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-xs hover:shadow-md transition-all duration-200 space-y-2"
                 >
-                  <div className="flex justify-between items-start gap-2">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {sub.kelas && (
-                        <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">
-                          {sub.kelas}
-                        </span>
-                      )}
-                      <span className="text-[10px] font-semibold font-mono text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                        Jam Ke-{sub.jamKe}
-                      </span>
-                    </div>
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        sub.keteranganKehadiran === "HADIR"
-                          ? "bg-emerald-50 text-emerald-700 border border-emerald-100"
-                          : sub.keteranganKehadiran === "IZIN"
-                          ? "bg-amber-50 text-amber-700 border border-amber-100"
-                          : sub.keteranganKehadiran === "SAKIT"
-                          ? "bg-sky-50 text-sky-700 border border-sky-100"
-                          : "bg-rose-50 text-rose-700 border border-rose-100"
-                      }`}
-                    >
-                      {sub.keteranganKehadiran}
+                  {/* Sequence: 1. Hari / Tanggal, 2. Kelas, 3. Nama Guru, 4. Mata Pelajaran, 5. Jam, 6. Kehadiran, 7. Pelapor */}
+                  
+                  {/* 1. Hari / Tanggal */}
+                  <div className="flex justify-between items-center text-[11px] font-bold text-slate-600 bg-slate-100/70 p-2 rounded-lg border border-slate-200/50">
+                    <span className="flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                      {sub.hari}, {sub.tanggal}
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-400 font-normal">
+                      {sub.submittedAt ? new Date(sub.submittedAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : ""}
                     </span>
                   </div>
-                  <h4 className="text-xs font-bold text-slate-700 line-clamp-1">{sub.namaGuru}</h4>
-                  <p className="text-[11px] text-slate-500 line-clamp-1">{sub.mataPelajaran}</p>
-                  <div className="text-[9px] text-slate-400 border-t border-slate-50 pt-1.5 flex justify-between">
-                    <span>{sub.hari}, {sub.tanggal}</span>
-                    <span>{new Date(sub.submittedAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}</span>
+
+                  <div className="space-y-1.5 pt-1 px-1 text-xs">
+                    {/* 2. Kelas */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase w-20 shrink-0">Kelas:</span>
+                      <span className="font-extrabold text-blue-700 bg-blue-50 px-2 py-0.5 rounded text-xs border border-blue-100">
+                        {sub.kelas || selectedKelas}
+                      </span>
+                    </div>
+
+                    {/* 3. Nama Guru */}
+                    <div className="flex items-start gap-2">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase w-20 shrink-0 pt-0.5">Nama Guru:</span>
+                      <span className="font-bold text-slate-800 leading-snug">
+                        {sub.namaGuru}
+                      </span>
+                    </div>
+
+                    {/* 4. Mata Pelajaran */}
+                    <div className="flex items-start gap-2">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase w-20 shrink-0 pt-0.5">Mapel:</span>
+                      <span className="font-medium text-slate-700">
+                        {sub.mataPelajaran}
+                      </span>
+                    </div>
+
+                    {/* 5. Jam */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase w-20 shrink-0">Jam Ke:</span>
+                      <span className="font-mono font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded text-xs">
+                        Jam {sub.jamKe}
+                      </span>
+                    </div>
+
+                    {/* 6. Kehadiran */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase w-20 shrink-0">Kehadiran:</span>
+                      <span
+                        className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full ${
+                          sub.keteranganKehadiran === "HADIR"
+                            ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                            : sub.keteranganKehadiran === "IZIN"
+                            ? "bg-amber-100 text-amber-800 border border-amber-200"
+                            : sub.keteranganKehadiran === "SAKIT"
+                            ? "bg-sky-100 text-sky-800 border border-sky-200"
+                            : "bg-rose-100 text-rose-800 border border-rose-200"
+                        }`}
+                      >
+                        {sub.keteranganKehadiran}
+                      </span>
+                    </div>
+
+                    {/* 7. Pelapor */}
+                    <div className="flex items-center gap-2 pt-1 border-t border-slate-100 mt-1">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase w-20 shrink-0">Pelapor:</span>
+                      <span className="text-xs font-semibold text-slate-600 bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
+                        {sub.submittedBy || username || "Admin Kelas"}
+                      </span>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -674,6 +715,99 @@ export default function StudentInputForm({ scheduleData, username }: StudentInpu
           )}
         </div>
 
+      </div>
+
+      {/* Full Width Table: Hasil Input Kehadiran Guru (Data Input Kelas) */}
+      <div className="lg:col-span-3 mt-4 bg-white rounded-2xl border border-slate-200/80 shadow-xs p-6" id="student-full-history-table">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <div>
+            <h3 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
+              <ClipboardList className="w-5 h-5 text-blue-600" /> Hasil Input Kehadiran Guru (Data Input Kelas)
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Tabel hasil input kehadiran guru sesuai urutan: Hari / Tanggal | Kelas | Nama Guru | Mata Pelajaran | Jam | Kehadiran | Pelapor
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs bg-blue-50 text-blue-700 font-bold px-2.5 py-1 rounded-lg border border-blue-100">
+              Total: {mySubmissions.length} Laporan
+            </span>
+            <button
+              type="button"
+              onClick={fetchMySubmissions}
+              className="text-xs bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-bold px-3 py-1 rounded-lg transition-all cursor-pointer"
+            >
+              Refresh Table
+            </button>
+          </div>
+        </div>
+
+        {mySubmissions.length === 0 ? (
+          <div className="bg-slate-50 border border-slate-200/60 rounded-xl p-8 text-center text-slate-500 text-xs">
+            Belum ada data input kelas terdaftar untuk kelas Anda hari ini. Gunakan form di atas untuk menginput kehadiran guru.
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-2xs">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-100/90 text-slate-700 font-extrabold border-b border-slate-200 uppercase tracking-wider text-[11px]">
+                  <th className="py-3 px-3.5 text-center w-12">No</th>
+                  <th className="py-3 px-3.5 whitespace-nowrap">Hari / Tanggal</th>
+                  <th className="py-3 px-3.5 whitespace-nowrap">Kelas</th>
+                  <th className="py-3 px-3.5 whitespace-nowrap">Nama Guru</th>
+                  <th className="py-3 px-3.5 whitespace-nowrap">Mata Pelajaran</th>
+                  <th className="py-3 px-3.5 whitespace-nowrap">Jam</th>
+                  <th className="py-3 px-3.5 text-center whitespace-nowrap">Kehadiran</th>
+                  <th className="py-3 px-3.5 whitespace-nowrap">Pelapor</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {mySubmissions.map((sub, idx) => (
+                  <tr key={sub.id || idx} className="hover:bg-blue-50/30 transition-colors">
+                    <td className="py-3 px-3.5 text-center font-bold text-slate-400">{idx + 1}</td>
+                    <td className="py-3 px-3.5 font-semibold text-slate-800 whitespace-nowrap">
+                      {sub.hari}, {sub.tanggal}
+                    </td>
+                    <td className="py-3 px-3.5 whitespace-nowrap">
+                      <span className="font-extrabold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-md text-xs border border-blue-100">
+                        {sub.kelas || selectedKelas}
+                      </span>
+                    </td>
+                    <td className="py-3 px-3.5 font-bold text-slate-800 whitespace-nowrap">
+                      {sub.namaGuru}
+                    </td>
+                    <td className="py-3 px-3.5 font-medium text-slate-700 whitespace-nowrap">
+                      {sub.mataPelajaran}
+                    </td>
+                    <td className="py-3 px-3.5 whitespace-nowrap">
+                      <span className="font-mono text-xs font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
+                        Jam {sub.jamKe}
+                      </span>
+                    </td>
+                    <td className="py-3 px-3.5 text-center whitespace-nowrap">
+                      <span
+                        className={`text-[10px] font-extrabold px-3 py-1 rounded-full ${
+                          sub.keteranganKehadiran === "HADIR"
+                            ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                            : sub.keteranganKehadiran === "IZIN"
+                            ? "bg-amber-100 text-amber-800 border border-amber-200"
+                            : sub.keteranganKehadiran === "SAKIT"
+                            ? "bg-sky-100 text-sky-800 border border-sky-200"
+                            : "bg-rose-100 text-rose-800 border border-rose-200"
+                        }`}
+                      >
+                        {sub.keteranganKehadiran}
+                      </span>
+                    </td>
+                    <td className="py-3 px-3.5 whitespace-nowrap font-semibold text-slate-600">
+                      {sub.submittedBy || username || "Admin Kelas"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
