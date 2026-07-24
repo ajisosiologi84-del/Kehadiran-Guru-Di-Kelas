@@ -191,6 +191,25 @@ function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = 5000
   });
 }
 
+function promiseWithTimeout<T>(promise: Promise<T>, timeoutMs = 3000, label = "Operation"): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    promise.then(
+      (res) => {
+        clearTimeout(timer);
+        resolve(res);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
 // Helper to catch and log Firestore errors without crashing the caller
 function logAndCatchFirestoreError(err: unknown, operationType: OperationType, path: string | null) {
   const errMsg = err instanceof Error ? err.message : String(err);
@@ -212,10 +231,20 @@ export const FirebaseService = {
 
   // 1. SETTINGS
   async getSettings() {
+    // 1. Check local storage
+    const local = localStorage.getItem("presence_settings");
+    let localSettings: any = null;
+    if (local) {
+      try {
+        localSettings = JSON.parse(local);
+      } catch (e) {}
+    }
+
+    // 2. Query Firestore with 2s timeout
     if (firebaseActive && db && !firestoreQuotaExceeded) {
       const pathStr = "settings/main";
       try {
-        const snap = await getDoc(doc(db, "settings", "main"));
+        const snap = await promiseWithTimeout(getDoc(doc(db, "settings", "main")), 2000, "getDoc settings/main");
         if (snap.exists()) {
           const data = snap.data();
           return {
@@ -229,9 +258,9 @@ export const FirebaseService = {
       }
     }
     
-    // Try Server API
+    // 3. Try Server API with 2s timeout
     try {
-      const res = await fetch("/api/settings");
+      const res = await fetchWithTimeout("/api/settings", {}, 2000);
       if (res.ok) {
         const data = await res.json();
         if (data && data.appsScriptUrl !== undefined) {
@@ -244,18 +273,15 @@ export const FirebaseService = {
       }
     } catch (e) {}
 
-    // Fallback to local storage or fallback value
-    const local = localStorage.getItem("presence_settings");
-    if (local) {
-      try {
-        const parsed = JSON.parse(local);
-        return {
-          appsScriptUrl: parsed.appsScriptUrl || "https://script.google.com/macros/s/AKfycbyU3izS72BeaDMovgdNSx8nLMgRBqFDLxa-fcXX0o2YRsllUpJb5K1f-inPCYoG1es0/exec",
-          logoUrl: parsed.logoUrl || "",
-          informasiUmum: parsed.informasiUmum || ""
-        };
-      } catch (e) {}
+    // 4. Fallback to local storage or fallback value
+    if (localSettings) {
+      return {
+        appsScriptUrl: localSettings.appsScriptUrl || "https://script.google.com/macros/s/AKfycbyU3izS72BeaDMovgdNSx8nLMgRBqFDLxa-fcXX0o2YRsllUpJb5K1f-inPCYoG1es0/exec",
+        logoUrl: localSettings.logoUrl || "",
+        informasiUmum: localSettings.informasiUmum || ""
+      };
     }
+
     return {
       appsScriptUrl: "https://script.google.com/macros/s/AKfycbyU3izS72BeaDMovgdNSx8nLMgRBqFDLxa-fcXX0o2YRsllUpJb5K1f-inPCYoG1es0/exec",
       logoUrl: "",
@@ -267,11 +293,11 @@ export const FirebaseService = {
     localStorage.setItem("presence_settings", JSON.stringify(settings));
 
     try {
-      await fetch("/api/settings", {
+      await fetchWithTimeout("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(settings)
-      });
+      }, 3000);
     } catch (e) {}
 
     if (firebaseActive && db && !firestoreQuotaExceeded) {
@@ -286,13 +312,27 @@ export const FirebaseService = {
 
   // 2. SCHEDULE & CLASS ADMINS
   async getScheduleData(): Promise<ScheduleData> {
+    // 1. Check local storage for immediate result
+    const local = localStorage.getItem("presence_schedule");
+    let localSched: ScheduleData | null = null;
+    if (local) {
+      try {
+        const parsed = JSON.parse(local);
+        if (parsed && parsed.namaGuruList && parsed.namaGuruList.length > 0) {
+          localSched = parsed;
+        }
+      } catch (e) {}
+    }
+
+    // 2. Query Firestore with 2s timeout
     if (firebaseActive && db && !firestoreQuotaExceeded) {
       const pathStr = "settings/cached_schedule";
       try {
-        const snap = await getDoc(doc(db, "settings", "cached_schedule"));
+        const snap = await promiseWithTimeout(getDoc(doc(db, "settings", "cached_schedule")), 2000, "getDoc cached_schedule");
         if (snap.exists()) {
           const data = snap.data() as ScheduleData;
           if (data && data.namaGuruList && data.namaGuruList.length > 0) {
+            localStorage.setItem("presence_schedule", JSON.stringify(data));
             return data;
           }
         }
@@ -301,9 +341,9 @@ export const FirebaseService = {
       }
     }
 
-    // Try Server API
+    // 3. Query Server API with 2.5s timeout
     try {
-      const res = await fetch("/api/schedule");
+      const res = await fetchWithTimeout("/api/schedule", {}, 2500);
       if (res.ok) {
         const data = await res.json();
         if (data && data.namaGuruList && data.namaGuruList.length > 0) {
@@ -313,26 +353,19 @@ export const FirebaseService = {
       }
     } catch (e) {}
 
-    // Try localStorage
-    const local = localStorage.getItem("presence_schedule");
-    if (local) {
-      try { return JSON.parse(local); } catch (e) {}
+    // 4. Return local cached schedule if available
+    if (localSched) {
+      return localSched;
     }
 
-    // Direct fetch from Google Sheet CSV or fallback
-    try {
-      const liveData = await this.syncWithGoogleSheet();
-      return liveData;
-    } catch (e) {
-      console.error("Direct fetch failed, returning default fallback data.", e);
-      return {
-        namaGuruList: FALLBACK_NAMA_GURU,
-        mataPelajaranList: FALLBACK_MATA_PELAJARAN,
-        jamKeList: FALLBACK_JAM_KE,
-        classAdmins: FALLBACK_CLASS_ADMINS,
-        lastSync: "Never (Using Fallback)"
-      };
-    }
+    // 5. Default fallback
+    return {
+      namaGuruList: FALLBACK_NAMA_GURU,
+      mataPelajaranList: FALLBACK_MATA_PELAJARAN,
+      jamKeList: FALLBACK_JAM_KE,
+      classAdmins: FALLBACK_CLASS_ADMINS,
+      lastSync: "Never (Using Fallback)"
+    };
   },
 
   async saveScheduleData(data: ScheduleData) {

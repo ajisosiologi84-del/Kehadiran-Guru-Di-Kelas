@@ -205,7 +205,7 @@ async function syncWithGoogleSheet() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ action: "get_schedule" })
-          }, 30000); // GSheet sync schedule: 30s timeout
+          }, 4000); // GSheet sync schedule fast timeout (4s)
           
           if (response.ok) {
             const text = await response.text();
@@ -237,7 +237,7 @@ async function syncWithGoogleSheet() {
     }
 
     console.log("Fetching live data from Google Sheet CSV directly...");
-    const response = await fetchWithTimeout(SHEETS_URL, {}, 15000); // GSheet CSV download: 15s timeout
+    const response = await fetchWithTimeout(SHEETS_URL, {}, 4000); // GSheet CSV download fast timeout (4s)
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
@@ -697,20 +697,17 @@ initApp();
   });
 
   // API: Get reference schedule data
-  app.get("/api/schedule", async (req, res) => {
-    // If still fallback, load from Firestore and sync from Sheets if needed synchronously (so serverless execution environment doesn't freeze the task)
+  app.get("/api/schedule", (req, res) => {
+    // Non-blocking background sync if cache hasn't synced yet
     if (cachedScheduleData.lastSync === "Never (Using Fallback)") {
-      try {
-        console.log("Loading schedule from Firestore synchronously...");
-        await loadCachedScheduleFromFirestore();
+      loadCachedScheduleFromFirestore().then(async () => {
         if (cachedScheduleData.lastSync === "Never (Using Fallback)") {
-          console.log("No schedule in Firestore, syncing live from Sheets synchronously...");
-          await syncWithGoogleSheet();
-          await saveCachedScheduleToFirestore();
+          console.log("No schedule in Firestore, syncing live from Sheets in background...");
+          syncWithGoogleSheet().then(saveCachedScheduleToFirestore).catch(err => {
+            console.error("Background sync error:", err?.message || err);
+          });
         }
-      } catch (err: any) {
-        console.error("Synchronous initial sync failed:", err.message);
-      }
+      }).catch(() => {});
     }
     res.json(cachedScheduleData);
   });
